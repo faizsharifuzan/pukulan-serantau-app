@@ -1,0 +1,9 @@
+{
+  "name": "Kelab Silat Olahraga Pukulan Serantau",
+  "short_name": "PSSPS Silat",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#064e3b",
+  "icons": []
+}
