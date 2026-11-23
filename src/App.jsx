@@ -16,7 +16,9 @@ export default function App() {
   const [allProfiles, setAllProfiles] = useState([]);
   const [viewAsParent, setViewAsParent] = useState(false);
 
-  const [authMode, setAuthMode] = useState('login');
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register' | 'forgot'
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -45,7 +47,10 @@ export default function App() {
       setSession(session);
       if (session) loadAllData(session.user.id);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsResettingPassword(true);
+      }
       setSession(session);
       if (session) loadAllData(session.user.id);
       else setProfile(null);
@@ -80,6 +85,14 @@ export default function App() {
   async function handleAuth(e) {
     e.preventDefault();
     setAuthMsg('');
+    if (authMode === 'forgot') {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) return setAuthMsg(error.message);
+      setAuthMsg('Pautan reset kata laluan telah dihantar ke emel anda. Sila semak Inbox atau Spam.');
+      return;
+    }
     if (authMode === 'register') {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) return setAuthMsg(error.message);
@@ -94,6 +107,17 @@ export default function App() {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setAuthMsg(error.message);
     }
+  }
+
+  async function handleUpdatePassword(e) {
+    e.preventDefault();
+    setAuthMsg('');
+    if (newPassword.length < 6) return setAuthMsg('Kata laluan mestilah sekurang-kurangnya 6 aksara.');
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) return setAuthMsg(error.message);
+    setNewPassword('');
+    setIsResettingPassword(false);
+    alert('Kata laluan baharu berjaya disimpan!');
   }
 
   const isAdmin = profile?.role === 'admin';
@@ -264,6 +288,34 @@ export default function App() {
     loadAllData(session.user.id);
   }
 
+  if (isResettingPassword) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-emerald-950 via-slate-950 to-black">
+        <div className="w-full max-w-md bg-slate-900/90 border border-emerald-800/60 rounded-2xl p-6 shadow-2xl">
+          <div className="flex flex-col items-center text-center mb-6">
+            <PSSPSLogo size={76} />
+            <h1 className="mt-3 text-xl font-bold text-amber-400">Tetapkan Kata Laluan Baharu</h1>
+            <p className="text-xs text-slate-400">Masukkan kata laluan baharu untuk akaun anda.</p>
+          </div>
+          <form onSubmit={handleUpdatePassword} className="space-y-3">
+            <input
+              type="password"
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm"
+              placeholder="Kata Laluan Baharu (min. 6 aksara)"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+            />
+            {authMsg && <p className="text-xs text-amber-400">{authMsg}</p>}
+            <button className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm">
+              Simpan Kata Laluan Baharu
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (!session) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-emerald-950 via-slate-950 to-black">
@@ -281,15 +333,31 @@ export default function App() {
               </>
             )}
             <input type="email" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Emel" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            <input type="password" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Kata Laluan" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            {authMode !== 'forgot' && (
+              <input type="password" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Kata Laluan" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            )}
             {authMsg && <p className="text-xs text-amber-400">{authMsg}</p>}
             <button className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm">
-              {authMode === 'login' ? 'Log Masuk' : 'Daftar Akaun'}
+              {authMode === 'login' ? 'Log Masuk' : authMode === 'register' ? 'Daftar Akaun' : 'Hantar Pautan Reset'}
             </button>
           </form>
-          <button onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="mt-4 w-full text-center text-xs text-emerald-400 hover:underline">
-            {authMode === 'login' ? 'Belum ada akaun? Daftar di sini' : 'Sudah ada akaun? Log masuk'}
-          </button>
+
+          <div className="mt-4 space-y-2 text-center">
+            {authMode === 'login' && (
+              <button
+                onClick={() => { setAuthMode('forgot'); setAuthMsg(''); }}
+                className="block w-full text-xs text-amber-400 hover:underline"
+              >
+                Lupa Kata Laluan?
+              </button>
+            )}
+            <button
+              onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthMsg(''); }}
+              className="block w-full text-xs text-emerald-400 hover:underline"
+            >
+              {authMode === 'login' ? 'Belum ada akaun? Daftar di sini' : 'Kembali ke Log Masuk'}
+            </button>
+          </div>
         </div>
       </div>
     );
