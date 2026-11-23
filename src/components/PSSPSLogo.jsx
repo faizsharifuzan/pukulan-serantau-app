@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function PSSPSLogo({ size = 44, customUrl = null }) {
+export default function PSSPSLogo({ size = 44, customUrl = 'https://tjitsxgozkhpgzjkutrj.supabase.co/storage/v1/object/public/club-media/IMG_0788.png' }) {
   if (customUrl) {
     return (
       <img
