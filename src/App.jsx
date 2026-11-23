@@ -322,7 +322,7 @@ export default function App() {
         <div className="w-full max-w-md bg-slate-900/90 border border-emerald-800/60 rounded-2xl p-6 shadow-2xl">
           <div className="flex flex-col items-center text-center mb-6">
             <PSSPSLogo size={76} />
-            <h1 className="mt-3 text-xl font-bold text-amber-400">Kelab Silat Olahraga Pukulan Serantau</h1>
+            <h1 className="mt-3 text-xl font-bold text-amber-400">Akademi Pukulan Serantau</h1>
             <p className="text-xs text-slate-400">Portal Rasmi Pengurusan, Penilaian & Pembayaran (PSSPS)</p>
           </div>
           <form onSubmit={handleAuth} className="space-y-3">
@@ -382,7 +382,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <PSSPSLogo size={42} />
           <div>
-            <h1 className="text-sm sm:text-base font-bold text-amber-400 leading-tight">Pukulan Serantau (PSSPS)</h1>
+            <h1 className="text-sm sm:text-base font-bold text-amber-400 leading-tight">Akademi Pukulan Serantau (PSSPS)</h1>
             <p className="text-[11px] text-emerald-200">
               {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : profile?.role}</span>
             </p>
