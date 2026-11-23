@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Users, Trophy, ShoppingBag, CreditCard, Upload, Download,
-  LogOut, ShieldCheck, Scale, CheckCircle2, XCircle, Plus, RefreshCw
+  LogOut, ShieldCheck, Scale, Plus, RefreshCw, UserCog, ArrowLeftRight
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { getPersilatWeightClass, getAgeCategory, checkTournamentEligibility } from './lib/persilat';
@@ -13,6 +13,9 @@ import BengkungVisualizer from './components/BengkungVisualizer';
 export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [allProfiles, setAllProfiles] = useState([]);
+  const [viewAsParent, setViewAsParent] = useState(false);
+
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,26 +26,18 @@ export default function App() {
   const [tab, setTab] = useState('students');
   const [students, setStudents] = useState([]);
   const [tournaments, setTournaments] = useState([]);
-  const [rsvps, setRsvps] = useState([]);
   const [products, setProducts] = useState([]);
   const [payments, setPayments] = useState([]);
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Edit Student Modal State
   const [editingStudent, setEditingStudent] = useState(null);
-
-  // New Tournament Form
   const [newEvent, setNewEvent] = useState({
     title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: ''
   });
-
-  // New Product Form
   const [newProduct, setNewProduct] = useState({
     name: '', category: 'Merchandise', price: 45, description: '', image_url: ''
   });
-
-  // Bank Transfer State
   const [bankRef, setBankRef] = useState('');
 
   useEffect(() => {
@@ -60,21 +55,25 @@ export default function App() {
 
   async function loadAllData(userId) {
     setLoading(true);
-    const [{ data: prof }, { data: studs }, { data: tourns }, { data: rsvpData }, { data: prods }, { data: pays }] =
+    const [{ data: prof }, { data: studs }, { data: tourns }, { data: prods }, { data: pays }] =
       await Promise.all([
         supabase.from('profiles').select('*').eq('id', userId).single(),
         supabase.from('students').select('*').order('id'),
         supabase.from('tournaments').select('*').order('event_date', { ascending: false }),
-        supabase.from('tournament_rsvps').select('*'),
         supabase.from('products').select('*').order('created_at', { ascending: false }),
         supabase.from('payments').select('*').order('created_at', { ascending: false }),
       ]);
-    setProfile(prof || { id: userId, role: 'parent', full_name: 'Pengguna' });
+    const currentProf = prof || { id: userId, role: 'parent', full_name: 'Pengguna' };
+    setProfile(currentProf);
     setStudents(studs || []);
     setTournaments(tourns || []);
-    setRsvps(rsvpData || []);
     setProducts(prods || []);
     setPayments(pays || []);
+
+    if (currentProf.role === 'admin') {
+      const { data: profList } = await supabase.from('profiles').select('*').order('full_name');
+      setAllProfiles(profList || []);
+    }
     setLoading(false);
   }
 
@@ -89,7 +88,7 @@ export default function App() {
           id: data.user.id, full_name: fullName || email.split('@')[0], phone, role: 'parent'
         });
       }
-      setAuthMsg('Akaun berjaya didaftar! Sila log masuk (atau sahkan emel jika diminta).');
+      setAuthMsg('Akaun berjaya didaftar! Sila log masuk.');
       setAuthMode('login');
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -97,9 +96,16 @@ export default function App() {
     }
   }
 
+  const isAdmin = profile?.role === 'admin';
   const isStaff = profile?.role === 'admin' || profile?.role === 'coach';
+  const actingAsStaff = isStaff && !viewAsParent;
 
-  // Seed 44 Students to Supabase
+  async function updateUserRole(targetId, newRole) {
+    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', targetId);
+    if (error) return alert('Ralat tukar peranan: ' + error.message);
+    loadAllData(session.user.id);
+  }
+
   async function handleSeedStudents() {
     if (!confirm('Muat naik 44 pesilat asal ke Supabase Production?')) return;
     const rows = SEED_STUDENTS.map((s) => ({
@@ -112,7 +118,6 @@ export default function App() {
     loadAllData(session.user.id);
   }
 
-  // Download Excel Template
   function downloadExcelTemplate() {
     const rows = (students.length ? students : SEED_STUDENTS).map((s) => ({
       ID: s.id,
@@ -134,7 +139,6 @@ export default function App() {
     XLSX.writeFile(wb, 'Template_Pesilat_PSSPS.xlsx');
   }
 
-  // Upload Excel / CSV directly to Supabase Production
   async function handleExcelUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -173,7 +177,6 @@ export default function App() {
     loadAllData(session.user.id);
   }
 
-  // Save Single Student Edit (including Weight Log)
   async function saveStudentEdit(e) {
     e.preventDefault();
     const s = editingStudent;
@@ -198,7 +201,6 @@ export default function App() {
     loadAllData(session.user.id);
   }
 
-  // Upload Image to Supabase Storage (club-media)
   async function uploadClubImage(file, folder) {
     const ext = file.name.split('.').pop();
     const path = `${folder}/${Date.now()}.${ext}`;
@@ -211,7 +213,6 @@ export default function App() {
     return data.publicUrl;
   }
 
-  // Parent Claim Child
   async function claimChild(studentId) {
     const { error } = await supabase
       .from('students')
@@ -221,7 +222,6 @@ export default function App() {
     loadAllData(session.user.id);
   }
 
-  // Cart & Multi-Pay Checkout
   const cartTotal = useMemo(() => cart.reduce((sum, i) => sum + Number(i.amount || 0), 0), [cart]);
 
   function addToCart(item) {
@@ -276,7 +276,7 @@ export default function App() {
           <form onSubmit={handleAuth} className="space-y-3">
             {authMode === 'register' && (
               <>
-                <input className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Nama Penuh Ibu Bapa" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+                <input className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Nama Penuh" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
                 <input className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="No. Telefon (WhatsApp)" value={phone} onChange={(e) => setPhone(e.target.value)} required />
               </>
             )}
@@ -284,7 +284,7 @@ export default function App() {
             <input type="password" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Kata Laluan" value={password} onChange={(e) => setPassword(e.target.value)} required />
             {authMsg && <p className="text-xs text-amber-400">{authMsg}</p>}
             <button className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm">
-              {authMode === 'login' ? 'Log Masuk' : 'Daftar Akaun Ibu Bapa'}
+              {authMode === 'login' ? 'Log Masuk' : 'Daftar Akaun'}
             </button>
           </form>
           <button onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="mt-4 w-full text-center text-xs text-emerald-400 hover:underline">
@@ -295,23 +295,44 @@ export default function App() {
     );
   }
 
-  const myChildren = isStaff ? students : students.filter((s) => s.parent_id === session.user.id);
+  const myChildren = actingAsStaff ? students : students.filter((s) => s.parent_id === session.user.id);
   const unclaimedChildren = students.filter((s) => !s.parent_id);
+
+  const navTabs = [
+    { id: 'students', label: actingAsStaff ? 'Pesilat & Excel' : 'Anak Saya', icon: Users },
+    { id: 'tournaments', label: 'Kejohanan & RSVP', icon: Trophy },
+    { id: 'shop', label: 'Kedai & Yuran', icon: ShoppingBag },
+    { id: 'checkout', label: `Troli (${cart.length})`, icon: CreditCard },
+  ];
+  if (isAdmin && actingAsStaff) {
+    navTabs.push({ id: 'staff', label: 'Urus Staf', icon: UserCog });
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-20">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-emerald-950/95 backdrop-blur border-b border-emerald-800/60 px-4 py-3 flex items-center justify-between">
+      <header className="sticky top-0 z-30 bg-emerald-950/95 backdrop-blur border-b border-emerald-800/60 px-4 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <PSSPSLogo size={42} />
           <div>
             <h1 className="text-sm sm:text-base font-bold text-amber-400 leading-tight">Pukulan Serantau (PSSPS)</h1>
             <p className="text-[11px] text-emerald-200">
-              {profile?.full_name} • <span className="uppercase font-semibold">{profile?.role}</span>
+              {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : profile?.role}</span>
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {isStaff && (
+            <button
+              onClick={() => {
+                setViewAsParent(!viewAsParent);
+                setTab('students');
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[11px] font-semibold flex items-center gap-1"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              {viewAsParent ? 'Mod Staf' : 'Mod Ibu Bapa'}
+            </button>
+          )}
           <button onClick={() => loadAllData(session.user.id)} className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800" title="Muat Semula">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -321,14 +342,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* Navigation Tabs */}
       <nav className="flex gap-2 overflow-x-auto px-4 py-3 bg-slate-900/80 border-b border-slate-800">
-        {[
-          { id: 'students', label: isStaff ? 'Pesilat & Excel' : 'Anak Saya', icon: Users },
-          { id: 'tournaments', label: 'Kejohanan & RSVP', icon: Trophy },
-          { id: 'shop', label: 'Kedai & Yuran', icon: ShoppingBag },
-          { id: 'checkout', label: `Troli (${cart.length})`, icon: CreditCard },
-        ].map((t) => (
+        {navTabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -342,10 +357,9 @@ export default function App() {
       </nav>
 
       <main className="max-w-5xl mx-auto p-4 space-y-6">
-        {/* TAB 1: STUDENTS */}
         {tab === 'students' && (
           <div className="space-y-4">
-            {isStaff && (
+            {actingAsStaff && (
               <div className="flex flex-wrap gap-2 bg-slate-900 p-4 rounded-xl border border-slate-800">
                 <button onClick={handleSeedStudents} className="px-3 py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4" /> Seed 44 Pesilat Asal
@@ -360,7 +374,7 @@ export default function App() {
               </div>
             )}
 
-            {!isStaff && unclaimedChildren.length > 0 && (
+            {!actingAsStaff && unclaimedChildren.length > 0 && (
               <div className="bg-emerald-950/50 border border-emerald-800 p-4 rounded-xl">
                 <h2 className="text-sm font-bold text-amber-400 mb-2">Pilih & Tuntut Profil Anak Anda</h2>
                 <div className="flex flex-wrap gap-2">
@@ -387,7 +401,6 @@ export default function App() {
                     </span>
                   </div>
 
-                  {/* Berat & Kelas PERSILAT Dunia */}
                   <div className="bg-slate-950 border border-amber-500/30 rounded-lg p-2.5 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Scale className="w-4 h-4 text-amber-400" />
@@ -407,7 +420,7 @@ export default function App() {
                     <p>Ibu Bapa: {s.parent_name || '-'} ({s.parent_phone || '-'})</p>
                   </div>
 
-                  {isStaff && (
+                  {actingAsStaff && (
                     <button onClick={() => setEditingStudent(s)} className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-amber-300">
                       Edit Maklumat & Kemaskini Berat
                     </button>
@@ -418,10 +431,9 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: TOURNAMENTS & RSVP */}
         {tab === 'tournaments' && (
           <div className="space-y-4">
-            {isStaff && (
+            {actingAsStaff && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
                 <h2 className="text-sm font-bold text-amber-400">Cipta Iklan Kejohanan / Open Friendly</h2>
                 <div className="grid sm:grid-cols-2 gap-2">
@@ -432,8 +444,14 @@ export default function App() {
                     <option>Open Friendly Sparring</option>
                     <option>Internal Friendly</option>
                   </select>
-                  <input type="date" className="px-3 py-2 rounded-lg bg-slate-800 text-xs" value={newEvent.event_date} onChange={(e) => setNewEvent({ ...newEvent, event_date: e.target.value })} />
-                  <input type="number" className="px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="Yuran Penyertaan (RM)" value={newEvent.entry_fee} onChange={(e) => setNewEvent({ ...newEvent, entry_fee: e.target.value })} />
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-1">Tarikh Kejohanan</label>
+                    <input type="date" className="w-full px-3 py-2 rounded-lg bg-slate-800 text-xs" value={newEvent.event_date} onChange={(e) => setNewEvent({ ...newEvent, event_date: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-1">Yuran Penyertaan (RM)</label>
+                    <input type="number" className="w-full px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="Yuran (RM)" value={newEvent.entry_fee} onChange={(e) => setNewEvent({ ...newEvent, entry_fee: e.target.value })} />
+                  </div>
                   <input className="px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="Lokasi" value={newEvent.location} onChange={(e) => setNewEvent({ ...newEvent, location: e.target.value })} />
                   <label className="px-3 py-2 rounded-lg bg-slate-800 text-xs cursor-pointer flex items-center gap-2">
                     <Upload className="w-4 h-4 text-amber-400" /> {newEvent.poster_url ? 'Poster Dimuat Naik ✓' : 'Muat Naik Poster Iklan'}
@@ -472,7 +490,7 @@ export default function App() {
                       </div>
                       <span className="text-sm font-bold text-emerald-400">RM{Number(t.entry_fee).toFixed(2)}</span>
                     </div>
-                    {!isStaff && myChildren.map((child) => {
+                    {!actingAsStaff && myChildren.map((child) => {
                       const elig = checkTournamentEligibility(child, t.event_type);
                       return (
                         <div key={child.id} className="mt-2 p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between gap-2">
@@ -500,10 +518,8 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3: SHOP & FEES */}
         {tab === 'shop' && (
           <div className="space-y-6">
-            {/* Yuran Kelab Tetap */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <h2 className="text-sm font-bold text-amber-400 mb-3">Yuran Rasmi Kelab (Multi-Anak)</h2>
               <div className="grid sm:grid-cols-3 gap-3">
@@ -531,8 +547,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Tambah Produk (Staff) */}
-            {isStaff && (
+            {actingAsStaff && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
                 <h2 className="text-sm font-bold text-amber-400">Tambah Merchandise / Combat Gear</h2>
                 <div className="grid sm:grid-cols-3 gap-2">
@@ -562,7 +577,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Senarai Produk */}
             <div className="grid sm:grid-cols-3 gap-4">
               {products.map((p) => (
                 <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
@@ -585,7 +599,6 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 4: MULTI-PAY CHECKOUT */}
         {tab === 'checkout' && (
           <div className="space-y-4">
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
@@ -622,7 +635,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Rekod Pembayaran */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
               <h2 className="text-sm font-bold text-amber-400">Sejarah Pembayaran</h2>
               {payments.map((p) => (
@@ -635,7 +647,7 @@ export default function App() {
                     <span className={`px-2 py-0.5 rounded font-semibold ${p.status === 'paid' ? 'bg-emerald-900 text-emerald-300' : 'bg-amber-900 text-amber-300'}`}>
                       {p.status}
                     </span>
-                    {isStaff && p.status !== 'paid' && (
+                    {actingAsStaff && p.status !== 'paid' && (
                       <button
                         onClick={async () => {
                           await supabase.from('payments').update({ status: 'paid', verified_by: session.user.id, paid_at: new Date().toISOString() }).eq('id', p.id);
@@ -652,9 +664,46 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {tab === 'staff' && isAdmin && actingAsStaff && (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div>
+              <h2 className="text-sm font-bold text-amber-400">Urus Jurulatih & Pengguna Berdaftar</h2>
+              <p className="text-xs text-slate-400">Minta jurulatih daftar akaun biasa dahulu, kemudian lantik mereka sebagai Coach di sini.</p>
+            </div>
+            <div className="space-y-2">
+              {allProfiles.map((u) => (
+                <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs">
+                  <div>
+                    <p className="font-bold text-white">{u.full_name}</p>
+                    <p className="text-[11px] text-slate-400">{u.phone || 'Tiada no. tel'} • Peranan: <span className="uppercase text-amber-300 font-semibold">{u.role}</span></p>
+                  </div>
+                  {u.role !== 'admin' && (
+                    <div className="flex gap-2">
+                      {u.role !== 'coach' ? (
+                        <button
+                          onClick={() => updateUserRole(u.id, 'coach')}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-bold text-[11px]"
+                        >
+                          Jadikan Coach
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => updateUserRole(u.id, 'parent')}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px]"
+                        >
+                          Turunkan ke Parent
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* Edit Student Modal */}
       {editingStudent && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 overflow-y-auto">
           <form onSubmit={saveStudentEdit} className="w-full max-w-lg bg-slate-900 border border-emerald-700 rounded-2xl p-5 space-y-3">
