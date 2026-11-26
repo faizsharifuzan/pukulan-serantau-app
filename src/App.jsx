@@ -16,6 +16,7 @@ import { StatusBadge, PaymentHistory, rm } from './components/PaymentUI';
 import { MyPayslips } from './components/Payslips';
 import ClassSession from './components/ClassSession';
 import StudentHistory from './components/StudentHistory';
+import AIChat from './components/AIChat';
 
 const SCORE_KEYS = [
   ['seni', 'Seni'], ['power', 'Power'], ['speed', 'Speed'], ['combat', 'Combat'],
@@ -584,6 +585,7 @@ export default function App() {
     { id: 'tournaments', label: 'Kejohanan', icon: Trophy },
     { id: 'shop', label: 'Kedai & Yuran', icon: ShoppingBag },
     { id: 'checkout', label: `Troli (${cart.length})`, icon: CreditCard },
+    { id: 'ai', label: 'Pembantu AI', icon: Info },
     { id: 'about', label: 'Tentang Kami', icon: Info },
   ];
   if (actingAsStaff) {
@@ -839,6 +841,9 @@ export default function App() {
 
         {tab === 'class' && actingAsStaff && (
           <ClassSession students={branchFilteredStudents} me={session.user.id} weightClass={getPersilatWeightClass} reload={() => loadAllData(session.user.id)} />
+        )}
+        {tab === 'ai' && (
+          <AIChat me={session.user.id} isStaff={actingAsStaff} isAdmin={isAdmin} students={actingAsStaff ? students : myStudents} branchName={branchNameById} reload={() => loadAllData(session.user.id)} />
         )}
         {tab === 'history' && !actingAsStaff && <StudentHistory students={myStudents} />}
 
