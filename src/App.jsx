@@ -203,7 +203,7 @@ export default function App() {
     alert('Kata laluan baharu berjaya disimpan!');
   }
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = profile?.role === 'admin' && !viewAsParent;
   const isStaff = profile?.role === 'admin' || profile?.role === 'coach';
   const isStudentRole = profile?.role === 'student';
   const actingAsStaff = isStaff && !viewAsParent;
