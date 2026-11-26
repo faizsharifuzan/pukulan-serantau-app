@@ -448,7 +448,7 @@ export default function App() {
 
   if (isResettingPassword) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-emerald-950 via-slate-950 to-black">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-emerald-950/80 via-slate-950/80 to-black/80">
         <div className="w-full max-w-md bg-slate-900/90 border border-emerald-800/60 rounded-2xl p-6 shadow-2xl">
           <div className="flex flex-col items-center text-center mb-6">
             <PSSPSLogo size={76} />
@@ -475,7 +475,7 @@ export default function App() {
 
   if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-emerald-950 via-slate-950 to-black">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-emerald-950/80 via-slate-950/80 to-black/80">
         <div className="w-full max-w-md bg-slate-900/90 border border-emerald-800/60 rounded-2xl p-6 shadow-2xl">
           <div className="flex flex-col items-center text-center mb-6">
             <PSSPSLogo size={76} />
@@ -593,7 +593,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-20">
+    <div className="min-h-screen text-slate-100 pb-20">
       <header className="sticky top-0 z-30 bg-emerald-950/95 backdrop-blur border-b border-emerald-800/60 px-4 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <PSSPSLogo size={42} />
