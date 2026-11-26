@@ -994,15 +994,35 @@ export default function App() {
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-bold text-amber-400">Carta Organisasi</h3>
-              <div className="grid sm:grid-cols-3 gap-3">
-                {(academyInfo.org_chart || []).map((o, i) => (
-                  <div key={i} className="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+              {(() => {
+                const org = academyInfo.org_chart || [];
+                const lv = (n) => org.filter((o) => (o.level ?? 2) === n);
+                const Box = ({ o, small }) => (
+                  <div className={`bg-slate-950 border border-amber-500/30 rounded-lg ${small ? 'p-2' : 'p-3'} text-center`}>
                     <p className="text-[10px] text-emerald-400 font-semibold uppercase">{o.role}</p>
-                    <p className="text-sm font-bold text-white mt-0.5">{o.name}</p>
-                    <p className="text-[11px] text-slate-400">{o.branch}</p>
+                    <p className={`${small ? 'text-xs' : 'text-sm'} font-bold text-white`}>{o.name}</p>
+                    {o.branch && <p className="text-[10px] text-slate-400">{o.branch}</p>}
                   </div>
-                ))}
-              </div>
+                );
+                const gurus = lv(2);
+                return (
+                  <div className="space-y-3">
+                    <div className="max-w-xs mx-auto">{lv(0).map((o, i) => <Box key={i} o={o} />)}</div>
+                    <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">{lv(1).map((o, i) => <Box key={i} o={o} />)}</div>
+                    <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3">
+                      {gurus.map((g, i) => (
+                        <div key={i} className="space-y-1.5">
+                          <Box o={g} />
+                          {lv(3).filter((o) => o.under === g.name).map((o, k) => <Box key={k} o={o} small />)}
+                        </div>
+                      ))}
+                    </div>
+                    {lv(3).filter((o) => !gurus.some((g) => g.name === o.under)).length > 0 && (
+                      <div className="grid sm:grid-cols-3 gap-2">{lv(3).filter((o) => !gurus.some((g) => g.name === o.under)).map((o, k) => <Box key={k} o={o} small />)}</div>
+                    )}
+                  </div>
+                );
+              })()}
               {isAdmin && <p className="text-[11px] text-slate-400">Tip: Anda boleh arahkan AI Pembantu untuk kemaskini Carta Organisasi atau Syarat pada bila-bila masa.</p>}
             </div>
 
