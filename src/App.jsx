@@ -14,6 +14,8 @@ import AdminPanel from './components/AdminPanel';
 import PaymentMethods from './components/PaymentMethods';
 import { StatusBadge, PaymentHistory, rm } from './components/PaymentUI';
 import { MyPayslips } from './components/Payslips';
+import ClassSession from './components/ClassSession';
+import StudentHistory from './components/StudentHistory';
 
 const SCORE_KEYS = [
   ['seni', 'Seni'], ['power', 'Power'], ['speed', 'Speed'], ['combat', 'Combat'],
@@ -578,6 +580,7 @@ export default function App() {
 
   const navTabs = [
     { id: 'students', label: actingAsStaff ? 'Pesilat & Excel' : isStudentRole ? 'Profil & Latihan' : 'Anak Saya', icon: Users },
+    { id: actingAsStaff ? 'class' : 'history', label: actingAsStaff ? 'Kelas' : 'Rekod Latihan', icon: Users },
     { id: 'tournaments', label: 'Kejohanan', icon: Trophy },
     { id: 'shop', label: 'Kedai & Yuran', icon: ShoppingBag },
     { id: 'checkout', label: `Troli (${cart.length})`, icon: CreditCard },
@@ -833,6 +836,11 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {tab === 'class' && actingAsStaff && (
+          <ClassSession students={branchFilteredStudents} me={session.user.id} weightClass={getPersilatWeightClass} reload={() => loadAllData(session.user.id)} />
+        )}
+        {tab === 'history' && !actingAsStaff && <StudentHistory students={myStudents} />}
 
         {/* TAB 4: SHOP & FEES */}
         {tab === 'shop' && (
