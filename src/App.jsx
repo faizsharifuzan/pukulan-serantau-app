@@ -667,9 +667,9 @@ export default function App() {
                   <button onClick={() => setShowAddStudent(true)} className="px-3 py-2 rounded-lg bg-emerald-600 text-white font-semibold text-xs flex items-center gap-1.5">
                     <Plus className="w-4 h-4" /> Tambah Pesilat Baharu
                   </button>
-                  <button onClick={handleSeedStudents} className="px-3 py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs flex items-center gap-1.5">
+                  {isAdmin && students.length === 0 && (<button onClick={handleSeedStudents} className="px-3 py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4" /> Seed 44 Pesilat Asal
-                  </button>
+                  </button>)}
                   <button onClick={downloadExcelTemplate} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 font-semibold text-xs flex items-center gap-1.5">
                     <Download className="w-4 h-4" /> Template Excel
                   </button>
