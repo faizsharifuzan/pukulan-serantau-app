@@ -8,3 +8,13 @@
   .print-area { position: absolute; left: 0; top: 0; width: 100%; background: #fff !important; color: #000 !important; }
   .no-print { display: none !important; }
 }
+
+/* Latar belakang: logo kelab bulat, malap */
+body::before {
+  content: ""; position: fixed; z-index: -1; pointer-events: none;
+  left: 50%; top: 50%; width: min(85vmin, 640px); height: min(85vmin, 640px);
+  transform: translate(-50%, -50%); border-radius: 9999px;
+  background: url('https://tjitsxgozkhpgzjkutrj.supabase.co/storage/v1/object/public/club-media/IMG_0788.png') center / cover no-repeat;
+  opacity: 0.12; filter: brightness(0.55) saturate(0.8);
+}
+@media print { body::before { display: none; } }
