@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Trash2, Plus, Upload, Check, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { StatusBadge, STATUS_LABEL, METHOD_LABEL, RefundLines, openReceipt, rm } from './PaymentUI';
@@ -295,8 +295,38 @@ function TournamentForm({ init, onSave, onCancel, upload, label, branches, isAdm
     </div>
   );
 }
-function TournamentsSection({ tournaments, run, me, upload, branches, branchName, isAdmin, myBranch }) {
+function Roster({ t, students }) {
+  const [rows, setRows] = useState(null);
+  const load = () => supabase.from('tournament_rsvps').select('*').eq('tournament_id', t.id).then(({ data }) => setRows(data || []));
+  useEffect(() => { load(); }, []); // eslint-disable-line
+  const nm = (id) => students.find((x) => x.id === id)?.full_name || id;
+  const pool = students.filter((x) => (!t.branch_id || x.branch_id === t.branch_id) && !(rows || []).some((r) => r.student_id === x.id));
+  const [add, setAdd] = useState('');
+  return (
+    <div className="bg-slate-900 rounded-lg p-2 space-y-1.5 text-[11px]">
+      {(rows || []).map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center justify-between gap-2">
+          <span>{nm(r.student_id)} • {r.rsvp_status} • <b className={r.payment_status === 'paid' ? 'text-emerald-400' : 'text-amber-300'}>{r.payment_status}</b></span>
+          <span className="flex gap-1.5">
+            <button onClick={async () => { await supabase.from('tournament_rsvps').update({ coach_override: !r.coach_override }).eq('id', r.id); load(); }} className={`${btn} ${r.coach_override ? 'bg-amber-500 text-slate-950' : 'bg-slate-800'}`}>Kebenaran khas {r.coach_override ? '✓' : ''}</button>
+            <button onClick={async () => { if (confirm('Buang peserta?')) { await supabase.from('tournament_rsvps').delete().eq('id', r.id); load(); } }} className="p-1 rounded bg-red-950 text-red-300"><Trash2 className="w-3.5 h-3.5" /></button>
+          </span>
+        </div>
+      ))}
+      {rows && rows.length === 0 && <p className="text-slate-500">Belum ada peserta.</p>}
+      <div className="flex gap-2 pt-1">
+        <select className={inp} value={add} onChange={(e) => setAdd(e.target.value)}>
+          <option value="">+ Jemput pesilat...</option>
+          {pool.map((x) => <option key={x.id} value={x.id}>{x.full_name || x.short_name}</option>)}
+        </select>
+        <button disabled={!add} onClick={async () => { const { error } = await supabase.from('tournament_rsvps').insert({ tournament_id: t.id, student_id: add, rsvp_status: 'invited', coach_override: true }); if (error) alert(error.message); setAdd(''); load(); }} className={`${btn} bg-emerald-600 disabled:opacity-40`}>Jemput</button>
+      </div>
+    </div>
+  );
+}
+function TournamentsSection({ tournaments, run, me, upload, branches, branchName, isAdmin, myBranch, students }) {
   const [editId, setEditId] = useState(null);
+  const [rosterId, setRosterId] = useState(null);
   const blank = { title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: '', description: '', branch_id: null };
   const mine = (t) => isAdmin || (t.branch_id && t.branch_id === myBranch);
   return (
@@ -324,12 +354,14 @@ function TournamentsSection({ tournaments, run, me, upload, branches, branchName
                 </div>
                 {mine(t) && (
                   <div className="flex gap-2">
+                    <button onClick={() => setRosterId(rosterId === t.id ? null : t.id)} className={`${btn} bg-slate-800 text-emerald-300`}>Peserta</button>
                     <button onClick={() => setEditId(t.id)} className={`${btn} bg-slate-800 text-amber-300`}>Edit</button>
                     <button onClick={() => confirm(`Padam kejohanan "${t.title}"?`) && run(() => supabase.from('tournaments').delete().eq('id', t.id))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 )}
               </div>
             )}
+            {rosterId === t.id && <Roster t={t} students={students} />}
           </div>
         ))}
       </div>
@@ -630,7 +662,7 @@ export default function AdminPanel({
       {sec === 'users' && <UsersSection profiles={profiles} me={me} isAdmin={isAdmin} branches={branches} branchName={branchName} run={run} />}
       {sec === 'links' && <LinksSection students={students} profiles={profiles} run={run} />}
       {sec === 'payments' && <PaymentsSection payments={payments} refunds={refunds} profiles={profiles} run={run} />}
-      {sec === 'events' && <TournamentsSection tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
+      {sec === 'events' && <TournamentsSection students={students} tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
       {sec === 'catalog' && <CatalogSection products={products} feeTypes={feeTypes} allFeeTypes={allFeeTypes} branchFees={branchFees} branches={branches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}
       {sec === 'branches' && <BranchesSection branches={branches} run={run} isAdmin={isAdmin} myBranch={myBranch} />}
       {sec === 'settings' && isAdmin && <PaymentSettings info={academyInfo.payment || {}} run={run} upload={upload} />}
