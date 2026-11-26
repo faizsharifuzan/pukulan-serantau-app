@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import {
   Users, Trophy, ShoppingBag, CreditCard, Upload, Download,
   LogOut, ShieldCheck, Scale, Plus, RefreshCw, UserCog, ArrowLeftRight,
-  Sparkles, Building2, Info, Trash2, Send, CalendarCheck, X
+  Building2, Info, Trash2, CalendarCheck, X
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { getPersilatWeightClass, getAgeCategory, checkTournamentEligibility } from './lib/persilat';
@@ -63,13 +63,6 @@ export default function App() {
   const [bankRef, setBankRef] = useState('');
   const [editingAbout, setEditingAbout] = useState(false);
   const [aboutForm, setAboutForm] = useState({ title: '', tagline: '', description: '', vision: '', mission: '' });
-
-  // AI Chat states
-  const [chatInput, setChatInput] = useState('');
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatMessages, setChatMessages] = useState([
-    { role: 'ai', text: 'Assalamualaikum! Saya Pembantu AI Akademi Pukulan Serantau. Bagaimana saya boleh bantu anda hari ini?' }
-  ]);
 
   useEffect(() => {
     supabase.from('branches').select('*').order('name').then(({ data }) => {
@@ -391,30 +384,6 @@ export default function App() {
     loadAllData(session.user.id);
   }
 
-  async function handleSendChat(e) {
-    e.preventDefault();
-    if (!chatInput.trim() || chatLoading) return;
-    const userMsg = chatInput.trim();
-    setChatMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
-    setChatInput('');
-    setChatLoading(true);
-
-    const { data, error } = await supabase.functions.invoke('ai-assistant', {
-      body: { message: userMsg, mode: viewAsParent ? 'parent' : profile?.role }
-    });
-
-    if (error || data?.error) {
-      setChatMessages((prev) => [...prev, { role: 'ai', text: 'Maaf, berlaku ralat AI: ' + (data?.error || error.message) }]);
-    } else {
-      const execNote = data?.executed?.length
-        ? `\n\n✅ Tindakan automatik selesai:\n• ${data.executed.join('\n• ')}`
-        : '';
-      setChatMessages((prev) => [...prev, { role: 'ai', text: (data?.reply || 'Selesai.') + execNote }]);
-      if (data?.executed?.length) loadAllData(session.user.id);
-    }
-    setChatLoading(false);
-  }
-
   const cartTotal = useMemo(() => cart.reduce((sum, i) => sum + Number(i.amount || 0), 0), [cart]);
 
   function addToCart(item) {
@@ -597,7 +566,6 @@ export default function App() {
 
   const navTabs = [
     { id: 'students', label: actingAsStaff ? 'Pesilat & Excel' : isStudentRole ? 'Profil & Latihan' : 'Anak Saya', icon: Users },
-    { id: 'ai', label: 'AI Pembantu', icon: Sparkles },
     { id: 'tournaments', label: 'Kejohanan', icon: Trophy },
     { id: 'shop', label: 'Kedai & Yuran', icon: ShoppingBag },
     { id: 'checkout', label: `Troli (${cart.length})`, icon: CreditCard },
@@ -803,45 +771,6 @@ export default function App() {
                 </div>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* TAB 2: AI CHATBOX */}
-        {tab === 'ai' && (
-          <div className="bg-slate-900 border border-emerald-800/60 rounded-2xl overflow-hidden flex flex-col h-[72vh]">
-            <div className="p-4 bg-emerald-950/60 border-b border-emerald-800/60">
-              <h2 className="text-sm font-bold text-amber-400 flex items-center gap-2">
-                <Sparkles className="w-4 h-4" /> Pembantu AI Akademi Pukulan Serantau
-              </h2>
-              <p className="text-[11px] text-slate-300 mt-0.5">
-                {actingAsStaff
-                  ? 'Mod Staf/Admin: Tampal keputusan sparring/latihan untuk auto-skor & jana latihan harian pesilat. Admin juga boleh arahkan AI tambah cawangan atau kemaskini info kelab.'
-                  : 'Tanya tentang bengkung, syarat kejohanan, atau analisis & cadangan latihan anak anda (data peribadi dilindungi).'}
-              </p>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {chatMessages.map((m, idx) => (
-                <div key={idx} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs whitespace-pre-wrap leading-relaxed ${
-                    m.role === 'user' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-100 border border-slate-700'
-                  }`}>
-                    {m.text}
-                  </div>
-                </div>
-              ))}
-              {chatLoading && <p className="text-xs text-amber-400 animate-pulse">AI sedang memproses & menganalisis...</p>}
-            </div>
-            <form onSubmit={handleSendChat} className="p-3 bg-slate-950 border-t border-slate-800 flex gap-2">
-              <input
-                className="flex-1 px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs outline-none focus:border-emerald-500"
-                placeholder={actingAsStaff ? 'Cth: Keputusan sparring hari ini — Ahmad menang 12-8, stamina kurang pusingan 3. Jana latihan mingguan...' : 'Tanya soalan tentang bengkung, syarat, atau prestasi...'}
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-              />
-              <button disabled={chatLoading} className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-xs flex items-center gap-1.5">
-                <Send className="w-4 h-4" /> Hantar
-              </button>
-            </form>
           </div>
         )}
 
