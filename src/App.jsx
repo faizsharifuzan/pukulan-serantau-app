@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Users, Trophy, ShoppingBag, CreditCard, Upload, Download,
@@ -10,6 +10,12 @@ import { getPersilatWeightClass, getAgeCategory, checkTournamentEligibility } fr
 import { SEED_STUDENTS } from './data/seedStudents';
 import PSSPSLogo from './components/PSSPSLogo';
 import BengkungVisualizer from './components/BengkungVisualizer';
+import AdminPanel, { StatusBadge } from './components/AdminPanel';
+
+const SCORE_KEYS = [
+  ['seni', 'Seni'], ['power', 'Power'], ['speed', 'Speed'], ['combat', 'Combat'],
+  ['agility', 'Agility'], ['stamina', 'Stamina'], ['strength', 'Strength'], ['tactical', 'Taktikal'],
+];
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -40,6 +46,11 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [payments, setPayments] = useState([]);
   const [cart, setCart] = useState([]);
+  const [feeTypes, setFeeTypes] = useState([]);
+  const [claimables, setClaimables] = useState([]);
+  const [payBusy, setPayBusy] = useState(false);
+  const [returnRef, setReturnRef] = useState(() => new URLSearchParams(window.location.search).get('ref'));
+  const pollCount = useRef(0);
   const [loading, setLoading] = useState(false);
 
   // Forms & Modals
@@ -48,13 +59,6 @@ export default function App() {
   const [newStudent, setNewStudent] = useState({
     id: '', short_name: '', full_name: '', ic_no: '', age: 10, gender: 'Lelaki',
     school: '', parent_name: '', parent_phone: '', current_weight: '', branch_id: '', class_tier: 'Beginner', bengkung_stage: 1
-  });
-  const [newBranch, setNewBranch] = useState({ name: '', state: '', address: '', training_schedule: '' });
-  const [newEvent, setNewEvent] = useState({
-    title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: ''
-  });
-  const [newProduct, setNewProduct] = useState({
-    name: '', category: 'Merchandise', price: 45, description: '', image_url: ''
   });
   const [bankRef, setBankRef] = useState('');
   const [editingAbout, setEditingAbout] = useState(false);
@@ -89,6 +93,15 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // After returning from Herepay, poll until the server-side callback has updated the payment
+  useEffect(() => {
+    if (!session || !returnRef) return;
+    const pay = payments.find((x) => x.reference_no === returnRef);
+    if ((pay && pay.status !== 'pending') || pollCount.current >= 10) return;
+    const t = setTimeout(() => { pollCount.current += 1; loadAllData(session.user.id); }, 3000);
+    return () => clearTimeout(t);
+  }, [session, returnRef, payments]);
+
   async function loadAllData(userId) {
     setLoading(true);
     const [
@@ -98,7 +111,9 @@ export default function App() {
       { data: prods },
       { data: pays },
       { data: brs },
-      { data: infoRows }
+      { data: infoRows },
+      { data: fees },
+      { data: claimable }
     ] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase.from('students').select('*').order('id'),
@@ -107,6 +122,8 @@ export default function App() {
       supabase.from('payments').select('*').order('created_at', { ascending: false }),
       supabase.from('branches').select('*').order('name'),
       supabase.from('academy_info').select('*'),
+      supabase.from('fee_types').select('*').eq('active', true).order('sort'),
+      supabase.rpc('list_claimable_students'),
     ]);
 
     const currentProf = prof || { id: userId, role: 'parent', full_name: 'Pengguna' };
@@ -116,6 +133,8 @@ export default function App() {
     setProducts(prods || []);
     setPayments(pays || []);
     if (brs) setBranches(brs);
+    setFeeTypes(fees || []);
+    setClaimables(claimable || []);
 
     const infoMap = Object.fromEntries((infoRows || []).map((r) => [r.key, r.value]));
     setAcademyInfo({
@@ -145,21 +164,19 @@ export default function App() {
       const cleanIc = icNo.replace(/\D/g, '');
       if (cleanIc.length !== 12) return setAuthMsg('No. IC mestilah tepat 12 digit tanpa tanda sengkang (-).');
       const cleanPhone = phone.replace(/\D/g, '').replace(/^60/, '').replace(/^0/, '');
-      if (cleanPhone.length < 8) return setAuthMsg('Sila masukkan nombor telefon yang sah (cth: 123456789).');
+      if (cleanPhone.length < 8 || cleanPhone.length > 11) return setAuthMsg('Sila masukkan nombor telefon yang sah (cth: 123456789).');
 
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { error } = await supabase.auth.signUp({
+        email, password,
+        options: {
+          data: {
+            full_name: fullName.trim().toUpperCase(), ic_no: cleanIc, phone: `+60${cleanPhone}`,
+            role: regRole, branch_id: regBranchId || null,
+          },
+        },
+      });
       if (error) return setAuthMsg(error.message);
-      if (data.user) {
-        await supabase.from('profiles').upsert({
-          id: data.user.id,
-          full_name: fullName.trim().toUpperCase(),
-          ic_no: cleanIc,
-          phone: `+60${cleanPhone}`,
-          role: regRole,
-          branch_id: regBranchId || null,
-        });
-      }
-      setAuthMsg('Akaun berjaya didaftar! Sila log masuk.');
+      setAuthMsg(regRole === 'coach' ? 'Akaun didaftar. Permohonan jurulatih menunggu kelulusan Admin. Sila semak emel (jika perlu) dan log masuk.' : 'Akaun berjaya didaftar! Semak emel untuk pengesahan jika diminta, kemudian log masuk.');
       setAuthMode('login');
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -170,7 +187,7 @@ export default function App() {
   async function handleUpdatePassword(e) {
     e.preventDefault();
     setAuthMsg('');
-    if (newPassword.length < 6) return setAuthMsg('Kata laluan mestilah sekurang-kurangnya 6 aksara.');
+    if (newPassword.length < 8) return setAuthMsg('Kata laluan mestilah sekurang-kurangnya 8 aksara.');
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) return setAuthMsg(error.message);
     setNewPassword('');
@@ -187,35 +204,6 @@ export default function App() {
     () => Object.fromEntries(branches.map((b) => [b.id, b.name])),
     [branches]
   );
-
-  async function updateUserRole(targetId, newRole) {
-    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', targetId);
-    if (error) return alert('Ralat tukar peranan: ' + error.message);
-    loadAllData(session.user.id);
-  }
-
-  async function deleteUserProfile(targetId, name) {
-    if (!confirm(`Padam profil pengguna ${name} daripada sistem?`)) return;
-    const { error } = await supabase.from('profiles').delete().eq('id', targetId);
-    if (error) return alert('Ralat padam: ' + error.message);
-    loadAllData(session.user.id);
-  }
-
-  async function handleAddBranch(e) {
-    e.preventDefault();
-    if (!newBranch.name || !newBranch.state) return alert('Isi nama cawangan & negeri.');
-    const { error } = await supabase.from('branches').insert(newBranch);
-    if (error) return alert('Ralat tambah cawangan: ' + error.message);
-    setNewBranch({ name: '', state: '', address: '', training_schedule: '' });
-    loadAllData(session.user.id);
-  }
-
-  async function handleDeleteBranch(id, name) {
-    if (!confirm(`Padam cawangan ${name}?`)) return;
-    const { error } = await supabase.from('branches').delete().eq('id', id);
-    if (error) return alert('Ralat padam cawangan: ' + error.message);
-    loadAllData(session.user.id);
-  }
 
   async function handleAddStudent(e) {
     e.preventDefault();
@@ -336,22 +324,27 @@ export default function App() {
 
   async function saveStudentEdit(e) {
     e.preventDefault();
-    const s = editingStudent;
+    const { parent_id, student_user_id, pending_claimant, pending_claim_role, updated_at, ...s } = editingStudent;
     const wt = parseFloat(s.current_weight) || null;
-    const wClass = wt ? getPersilatWeightClass(s.age, wt) : 'Belum Ditimbang';
+    const age = parseInt(s.age, 10) || 10;
+    const wClass = wt ? getPersilatWeightClass(age, wt) : 'Belum Ditimbang';
+    const scores = Object.fromEntries(SCORE_KEYS.map(([k]) => [k, Math.max(0, Math.min(100, Number(s.scores?.[k] ?? 60)))]));
+    const overall = Math.round(SCORE_KEYS.reduce((a, [k]) => a + scores[k], 0) / SCORE_KEYS.length);
     const payload = {
       ...s,
       full_name: (s.full_name || '').trim().toUpperCase(),
       ic_no: (s.ic_no || '').replace(/\D/g, ''),
-      age: parseInt(s.age, 10) || 10,
-      age_category: getAgeCategory(s.age),
+      age,
+      age_category: getAgeCategory(age),
       current_weight: wt,
       weight_class: wClass,
       weight_updated_at: wt ? new Date().toISOString() : s.weight_updated_at,
+      scores,
+      overall_score: overall,
     };
     const { error } = await supabase.from('students').update(payload).eq('id', s.id);
     if (error) return alert('Ralat simpan: ' + error.message);
-    if (wt) {
+    if (wt && wt !== Number(students.find((x) => x.id === s.id)?.current_weight)) {
       await supabase.from('weight_logs').insert({
         student_id: s.id, weight_kg: wt, weight_class: wClass, recorded_by: session.user.id
       });
@@ -373,16 +366,17 @@ export default function App() {
   }
 
   async function claimStudent(studentId) {
-    const col = isStudentRole ? 'student_user_id' : 'parent_id';
-    const { error } = await supabase.from('students').update({ [col]: session.user.id }).eq('id', studentId);
+    const { error } = await supabase.rpc('claim_student', { p_id: studentId });
     if (error) return alert(error.message);
+    alert(isStaff ? 'Pesilat dipautkan.' : 'Permohonan dihantar. Admin/jurulatih akan mengesahkan tuntutan anda.');
     loadAllData(session.user.id);
   }
 
   async function unclaimStudent(studentId, colType) {
-    if (!confirm('Batal tuntutan profil pesilat ini?')) return;
-    const col = colType || (isStudentRole ? 'student_user_id' : 'parent_id');
-    const { error } = await supabase.from('students').update({ [col]: null }).eq('id', studentId);
+    if (!confirm('Batal tuntutan / pautan pesilat ini?')) return;
+    const { error } = colType === 'parent_id' && isStaff
+      ? await supabase.rpc('assign_student_account', { p_student: studentId, p_kind: 'parent', p_user: null })
+      : await supabase.rpc('unclaim_student', { p_id: studentId });
     if (error) return alert(error.message);
     loadAllData(session.user.id);
   }
@@ -422,42 +416,63 @@ export default function App() {
   }
 
   const cartTotal = useMemo(() => cart.reduce((sum, i) => sum + Number(i.amount || 0), 0), [cart]);
+
   function addToCart(item) {
-    setCart((prev) => [...prev, { ...item, cartId: Date.now() + Math.random() }]);
+    setCart((prev) => {
+      const key = (i) => [i.type, i.student_id, i.fee_code, i.tournament_id, i.product_id].join('|');
+      const existing = prev.find((c) => key(c) === key(item));
+      if (existing) {
+        if (item.type === 'product') {
+          return prev.map((c) => c === existing
+            ? { ...c, qty: Math.min(20, c.qty + 1), amount: Number(item.unit) * Math.min(20, c.qty + 1) }
+            : c);
+        }
+        return prev; // fees & tournaments: one per child
+      }
+      return [...prev, { ...item, qty: 1, cartId: crypto.randomUUID() }];
+    });
+  }
+  const removeFromCart = (cartId) => setCart((prev) => prev.filter((c) => c.cartId !== cartId));
+  const orderItems = () => cart.map((c) => ({
+    type: c.type, student_id: c.student_id, fee_code: c.fee_code,
+    tournament_id: c.tournament_id, product_id: c.product_id, qty: c.qty,
+  }));
+
+  async function fnErrorMessage(error, data) {
+    if (data?.error) return data.error;
+    try { const b = await error.context.json(); if (b?.error) return b.error; } catch (_) { /* ignore */ }
+    return error?.message || 'Ralat tidak diketahui';
   }
 
   async function checkoutFPX() {
-    if (!cart.length) return;
-    const { data, error } = await supabase.functions.invoke('create-fpx-bill', {
-      body: {
-        items: cart, totalAmount: cartTotal,
-        parentName: profile?.full_name || 'Ibu Bapa',
-        parentEmail: session.user.email,
-        parentPhone: profile?.phone || '+60123456789',
-      },
-    });
-    if (error || !data?.payment_url) {
-      return alert('FPX belum diaktifkan. Sila guna Direct Bank Transfer buat masa ini.');
-    }
-    window.location.href = data.payment_url;
+    if (!cart.length || payBusy) return;
+    setPayBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-herepay-link', { body: { items: orderItems() } });
+      if (error || !data?.payment_url) return alert(await fnErrorMessage(error, data));
+      setCart([]);
+      window.location.href = data.payment_url;
+    } finally { setPayBusy(false); }
   }
 
   async function checkoutBankTransfer() {
-    if (!cart.length || !bankRef.trim()) return alert('Sila masukkan nombor rujukan transaksi bank.');
-    const refNo = `PS-TRF-${Date.now()}`;
-    const { error } = await supabase.from('payments').insert({
-      parent_id: session.user.id,
-      reference_no: refNo,
-      payment_method: 'bank_transfer',
-      total_amount: cartTotal,
-      items: cart,
-      bank_transfer_ref: bankRef.trim(),
-      status: 'pending_verification',
-    });
+    if (!cart.length || payBusy) return;
+    if (!bankRef.trim()) return alert('Sila masukkan nombor rujukan transaksi bank.');
+    setPayBusy(true);
+    try {
+      const { data, error } = await supabase.rpc('create_payment_order', { p_items: orderItems(), p_method: 'bank_transfer', p_bank_ref: bankRef.trim() });
+      if (error) return alert(error.message);
+      setCart([]);
+      setBankRef('');
+      alert(`Bukti bayaran (${data.reference_no}) dihantar untuk pengesahan.`);
+      loadAllData(session.user.id);
+    } finally { setPayBusy(false); }
+  }
+
+  async function cancelPayment(id) {
+    if (!confirm('Batalkan bayaran ini?')) return;
+    const { error } = await supabase.rpc('cancel_payment_order', { p_id: id });
     if (error) return alert(error.message);
-    setCart([]);
-    setBankRef('');
-    alert(`Bukti bayaran (${refNo}) berjaya dihantar untuk pengesahan jurulatih.`);
     loadAllData(session.user.id);
   }
 
@@ -473,7 +488,7 @@ export default function App() {
             <input
               type="password"
               className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm"
-              placeholder="Kata Laluan Baharu (min. 6 aksara)"
+              placeholder="Kata Laluan Baharu (min. 8 aksara)"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required
@@ -505,7 +520,7 @@ export default function App() {
                   <select className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" value={regRole} onChange={(e) => setRegRole(e.target.value)}>
                     <option value="parent">Ibu Bapa / Penjaga</option>
                     <option value="student">Pesilat (Pelajar)</option>
-                    <option value="coach">Jurulatih (Coach)</option>
+                    <option value="coach">Mohon Jadi Jurulatih (perlu kelulusan Admin)</option>
                   </select>
                 </div>
                 <div>
@@ -578,9 +593,7 @@ export default function App() {
       ? students.filter((s) => s.student_user_id === session.user.id)
       : students.filter((s) => s.parent_id === session.user.id);
 
-  const unclaimedStudents = isStudentRole
-    ? students.filter((s) => !s.student_user_id)
-    : students.filter((s) => !s.parent_id);
+  const unclaimedStudents = claimables;
 
   const navTabs = [
     { id: 'students', label: actingAsStaff ? 'Pesilat & Excel' : isStudentRole ? 'Profil & Latihan' : 'Anak Saya', icon: Users },
@@ -591,7 +604,7 @@ export default function App() {
     { id: 'about', label: 'Tentang Kami', icon: Info },
   ];
   if (actingAsStaff) {
-    navTabs.push({ id: 'manage', label: 'Cawangan & Ahli', icon: Building2 });
+    navTabs.push({ id: 'manage', label: isAdmin ? 'Pentadbiran' : 'Pautan & Bayaran', icon: Building2 });
   }
 
   return (
@@ -682,15 +695,26 @@ export default function App() {
             )}
 
             {!actingAsStaff && unclaimedStudents.length > 0 && (
-              <div className="bg-emerald-950/50 border border-emerald-800 p-4 rounded-xl">
-                <h2 className="text-sm font-bold text-amber-400 mb-2">
-                  {isStudentRole ? 'Pilih & Tuntut Profil Anda' : 'Pilih & Tuntut Profil Anak Anda'}
+              <div className="bg-emerald-950/50 border border-emerald-800 p-4 rounded-xl space-y-2">
+                <h2 className="text-sm font-bold text-amber-400">
+                  {isStudentRole ? 'Pilih Profil Anda' : 'Pilih Profil Anak Anda'}
                 </h2>
-                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+                <p className="text-[11px] text-slate-400">Hanya nama dipaparkan. Selepas anda pilih, Admin/jurulatih akan mengesahkan sebelum maklumat penuh dibuka.</p>
+                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
                   {unclaimedStudents.map((s) => (
-                    <button key={s.id} onClick={() => claimStudent(s.id)} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-emerald-700 text-xs hover:bg-emerald-800">
-                      + {s.full_name || s.short_name} ({branchNameById[s.branch_id] || 'Putrajaya'})
-                    </button>
+                    s.my_pending ? (
+                      <button key={s.id} onClick={() => unclaimStudent(s.id)} className="px-2.5 py-1.5 rounded-lg bg-amber-900/40 border border-amber-600 text-xs text-amber-200">
+                        ⏳ {s.full_name || s.short_name} — menunggu kelulusan (batal)
+                      </button>
+                    ) : s.taken ? (
+                      <span key={s.id} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-500">
+                        {s.full_name || s.short_name} (dalam semakan)
+                      </span>
+                    ) : (
+                      <button key={s.id} onClick={() => claimStudent(s.id)} className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-emerald-700 text-xs hover:bg-emerald-800">
+                        + {s.full_name || s.short_name} ({branchNameById[s.branch_id] || '-'})
+                      </button>
+                    )
                   ))}
                 </div>
               </div>
@@ -756,14 +780,16 @@ export default function App() {
                         <button onClick={() => setEditingStudent(s)} className="flex-1 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-amber-300">
                           Edit & Berat
                         </button>
-                        {s.parent_id && (
+                        {isAdmin && s.parent_id && (
                           <button onClick={() => unclaimStudent(s.id, 'parent_id')} className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300">
                             Lepas Ibu Bapa
                           </button>
                         )}
-                        <button onClick={() => handleDeleteStudent(s.id, s.short_name)} className="p-1.5 rounded-lg bg-red-950/80 text-red-300 hover:bg-red-900" title="Padam Pesilat">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {isAdmin && (
+                          <button onClick={() => handleDeleteStudent(s.id, s.short_name)} className="p-1.5 rounded-lg bg-red-950/80 text-red-300 hover:bg-red-900" title="Padam Pesilat">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </>
                     ) : (
                       <button
@@ -822,49 +848,7 @@ export default function App() {
         {/* TAB 3: TOURNAMENTS */}
         {tab === 'tournaments' && (
           <div className="space-y-4">
-            {actingAsStaff && (
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-                <h2 className="text-sm font-bold text-amber-400">Cipta Iklan Kejohanan / Open Friendly</h2>
-                <div className="grid sm:grid-cols-2 gap-2">
-                  <input className="px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="Nama Kejohanan" value={newEvent.title} onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })} />
-                  <select className="px-3 py-2 rounded-lg bg-slate-800 text-xs" value={newEvent.event_type} onChange={(e) => setNewEvent({ ...newEvent, event_type: e.target.value })}>
-                    <option>Open Tournament</option>
-                    <option>State/National Selection</option>
-                    <option>Open Friendly Sparring</option>
-                    <option>Internal Friendly</option>
-                  </select>
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-1">Tarikh Kejohanan</label>
-                    <input type="date" className="w-full px-3 py-2 rounded-lg bg-slate-800 text-xs" value={newEvent.event_date} onChange={(e) => setNewEvent({ ...newEvent, event_date: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-1">Yuran Penyertaan (RM)</label>
-                    <input type="number" className="w-full px-3 py-2 rounded-lg bg-slate-800 text-xs" value={newEvent.entry_fee} onChange={(e) => setNewEvent({ ...newEvent, entry_fee: e.target.value })} />
-                  </div>
-                  <input className="px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="Lokasi" value={newEvent.location} onChange={(e) => setNewEvent({ ...newEvent, location: e.target.value })} />
-                  <label className="px-3 py-2 rounded-lg bg-slate-800 text-xs cursor-pointer flex items-center gap-2">
-                    <Upload className="w-4 h-4 text-amber-400" /> {newEvent.poster_url ? 'Poster Dimuat Naik ✓' : 'Muat Naik Poster'}
-                    <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                      if (e.target.files?.[0]) {
-                        const url = await uploadClubImage(e.target.files[0], 'posters');
-                        setNewEvent({ ...newEvent, poster_url: url });
-                      }
-                    }} />
-                  </label>
-                </div>
-                <button
-                  onClick={async () => {
-                    if (!newEvent.title || !newEvent.event_date) return alert('Isi nama & tarikh kejohanan.');
-                    await supabase.from('tournaments').insert({ ...newEvent, created_by: session.user.id });
-                    setNewEvent({ title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: '' });
-                    loadAllData(session.user.id);
-                  }}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 text-xs font-bold"
-                >
-                  Terbitkan Kejohanan
-                </button>
-              </div>
-            )}
+            {isAdmin && actingAsStaff && <p className="text-[11px] text-slate-400">Cipta / edit / padam kejohanan di tab <b>Pentadbiran → Kejohanan</b>.</p>}
 
             <div className="grid sm:grid-cols-2 gap-4">
               {tournaments.map((t) => (
@@ -889,7 +873,7 @@ export default function App() {
                           </div>
                           {elig.eligible ? (
                             <button
-                              onClick={() => addToCart({ student_id: child.id, type: 'tournament', label: `Yuran ${t.title} (${child.short_name})`, amount: Number(t.entry_fee) })}
+                              onClick={() => addToCart({ student_id: child.id, type: 'tournament', tournament_id: t.id, label: `Yuran ${t.title} (${child.short_name})`, amount: Number(t.entry_fee) })}
                               className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-[11px] font-bold whitespace-nowrap"
                             >
                               RSVP & Bayar
@@ -913,19 +897,15 @@ export default function App() {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <h2 className="text-sm font-bold text-amber-400 mb-3">Yuran Rasmi Akademi (Multi-Anak)</h2>
               <div className="grid sm:grid-cols-3 gap-3">
-                {[
-                  { label: 'Yuran Tahunan Akademi', amount: 50 },
-                  { label: 'Yuran Bulanan Latihan', amount: 20 },
-                  { label: 'Yuran Ujian Kenaikan Bengkung', amount: 50 },
-                ].map((fee) => (
-                  <div key={fee.label} className="bg-slate-950 border border-slate-800 p-3 rounded-lg space-y-2">
+                {feeTypes.map((fee) => (
+                  <div key={fee.code} className="bg-slate-950 border border-slate-800 p-3 rounded-lg space-y-2">
                     <p className="text-xs font-bold">{fee.label}</p>
-                    <p className="text-lg font-bold text-emerald-400">RM{fee.amount.toFixed(2)}</p>
+                    <p className="text-lg font-bold text-emerald-400">RM{Number(fee.amount).toFixed(2)}</p>
                     <div className="flex flex-wrap gap-1.5">
                       {myStudents.slice(0, 6).map((c) => (
                         <button
                           key={c.id}
-                          onClick={() => addToCart({ student_id: c.id, type: 'fee', label: `${fee.label} (${c.short_name})`, amount: fee.amount })}
+                          onClick={() => addToCart({ student_id: c.id, type: 'fee', fee_code: fee.code, label: `${fee.label} (${c.short_name})`, amount: Number(fee.amount) })}
                           className="px-2 py-1 rounded bg-emerald-900/70 hover:bg-emerald-700 text-[10px]"
                         >
                           + {c.short_name}
@@ -934,49 +914,21 @@ export default function App() {
                     </div>
                   </div>
                 ))}
+                {feeTypes.length === 0 && <p className="text-xs text-slate-400">Tiada yuran aktif.</p>}
               </div>
+              {myStudents.length === 0 && <p className="text-[11px] text-amber-300 mt-2">Pilih profil anak anda di tab "Anak Saya" dahulu untuk membayar yuran.</p>}
             </div>
 
-            {actingAsStaff && (
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-                <h2 className="text-sm font-bold text-amber-400">Tambah Merchandise / Combat Gear</h2>
-                <div className="grid sm:grid-cols-3 gap-2">
-                  <input className="px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="Nama Produk" value={newProduct.name} onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })} />
-                  <input type="number" className="px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="Harga (RM)" value={newProduct.price} onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })} />
-                  <label className="px-3 py-2 rounded-lg bg-slate-800 text-xs cursor-pointer flex items-center gap-2">
-                    <Upload className="w-4 h-4 text-amber-400" /> {newProduct.image_url ? 'Gambar Siap ✓' : 'Muat Naik Gambar'}
-                    <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                      if (e.target.files?.[0]) {
-                        const url = await uploadClubImage(e.target.files[0], 'products');
-                        setNewProduct({ ...newProduct, image_url: url });
-                      }
-                    }} />
-                  </label>
-                </div>
-                <button
-                  onClick={async () => {
-                    if (!newProduct.name) return;
-                    await supabase.from('products').insert(newProduct);
-                    setNewProduct({ name: '', category: 'Merchandise', price: 45, description: '', image_url: '' });
-                    loadAllData(session.user.id);
-                  }}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 text-xs font-bold"
-                >
-                  Simpan Produk
-                </button>
-              </div>
-            )}
-
             <div className="grid sm:grid-cols-3 gap-4">
-              {products.map((p) => (
+              {products.filter((p) => p.in_stock || isAdmin).map((p) => (
                 <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
                   {p.image_url && <img src={p.image_url} alt={p.name} className="w-full h-36 object-cover" />}
                   <div className="p-3 space-y-2">
                     <h3 className="text-sm font-bold">{p.name}</h3>
                     <div className="flex items-center justify-between">
                       <span className="text-emerald-400 font-bold text-sm">RM{Number(p.price).toFixed(2)}</span>
-                      <button onClick={() => addToCart({ type: 'product', label: p.name, amount: Number(p.price) })} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-xs font-semibold flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> Troli
+                      <button disabled={!p.in_stock} onClick={() => addToCart({ type: 'product', product_id: p.id, unit: Number(p.price), label: p.name, amount: Number(p.price) })} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-xs font-semibold flex items-center gap-1">
+                        <Plus className="w-3 h-3" /> {p.in_stock ? 'Troli' : 'Habis'}
                       </button>
                     </div>
                   </div>
@@ -987,34 +939,57 @@ export default function App() {
         )}
 
         {/* TAB 5: CHECKOUT */}
-        {tab === 'checkout' && (
+        {tab === 'checkout' && (() => {
+          const mine = payments.filter((p) => p.parent_id === session.user.id);
+          const ret = returnRef ? payments.find((p) => p.reference_no === returnRef) : null;
+          return (
           <div className="space-y-4">
+            {returnRef && (
+              <div className={`rounded-xl p-3 border text-xs flex items-start justify-between gap-3 ${ret?.status === 'paid' ? 'bg-emerald-950/60 border-emerald-700 text-emerald-200' : ret?.status === 'failed' ? 'bg-red-950/60 border-red-800 text-red-200' : 'bg-amber-950/40 border-amber-700 text-amber-200'}`}>
+                <p>
+                  {ret?.status === 'paid' && <>Pembayaran <b>{returnRef}</b> berjaya diterima. Terima kasih!</>}
+                  {ret?.status === 'failed' && <>Pembayaran <b>{returnRef}</b> tidak berjaya. Anda boleh cuba semula.</>}
+                  {(!ret || ret.status === 'pending') && <>Mengesahkan pembayaran <b>{returnRef}</b> dengan bank... status akan dikemaskini secara automatik.</>}
+                  {ret && !['paid', 'failed', 'pending'].includes(ret.status) && <>Status: <StatusBadge status={ret.status} /></>}
+                </p>
+                <button onClick={() => { setReturnRef(null); window.history.replaceState({}, '', window.location.pathname); }}><X className="w-4 h-4" /></button>
+              </div>
+            )}
+
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-              <h2 className="text-sm font-bold text-amber-400">Troli Pembayaran Gabungan</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-amber-400">Troli Pembayaran Gabungan</h2>
+                {cart.length > 0 && (
+                  <button onClick={() => confirm('Kosongkan semua item dalam troli?') && setCart([])} className="px-2.5 py-1 rounded-lg bg-red-950/70 border border-red-900 text-[11px] font-semibold text-red-300">
+                    Kosongkan Troli
+                  </button>
+                )}
+              </div>
               {cart.length === 0 ? (
                 <p className="text-xs text-slate-400">Tiada item dalam troli.</p>
               ) : (
                 <>
                   {cart.map((item) => (
-                    <div key={item.cartId} className="flex justify-between items-center text-xs bg-slate-950 p-2.5 rounded-lg">
-                      <span>{item.label}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-emerald-400">RM{item.amount.toFixed(2)}</span>
-                        <button onClick={() => setCart(cart.filter((c) => c.cartId !== item.cartId))} className="text-red-400">Buang</button>
-                      </div>
+                    <div key={item.cartId} className="flex justify-between items-center gap-2 text-xs bg-slate-950 p-2.5 rounded-lg">
+                      <span className="flex-1">{item.label}{item.type === 'product' && item.qty > 1 ? ` ×${item.qty}` : ''}</span>
+                      <span className="font-bold text-emerald-400">RM{Number(item.amount).toFixed(2)}</span>
+                      <button onClick={() => removeFromCart(item.cartId)} className="px-2.5 py-1 rounded-lg bg-red-950/70 border border-red-900 text-red-300 font-semibold flex items-center gap-1" title="Batalkan item ini">
+                        <X className="w-3.5 h-3.5" /> Batal
+                      </button>
                     </div>
                   ))}
                   <div className="flex justify-between items-center pt-2 border-t border-slate-800">
                     <span className="font-bold">Jumlah Keseluruhan</span>
                     <span className="text-xl font-bold text-amber-400">RM{cartTotal.toFixed(2)}</span>
                   </div>
+                  <p className="text-[10px] text-slate-500">Jumlah muktamad dikira & disahkan oleh pelayan semasa pembayaran.</p>
                   <div className="grid sm:grid-cols-2 gap-3 pt-2">
-                    <button onClick={checkoutFPX} className="py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-bold text-xs">
-                      Bayar Online FPX (toyyibPay)
+                    <button disabled={payBusy} onClick={checkoutFPX} className="py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 font-bold text-xs">
+                      {payBusy ? 'Memproses...' : 'Bayar Online FPX (Herepay)'}
                     </button>
                     <div className="flex gap-2">
                       <input className="flex-1 px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="No. Rujukan Bank Transfer" value={bankRef} onChange={(e) => setBankRef(e.target.value)} />
-                      <button onClick={checkoutBankTransfer} className="px-3 py-2 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs">
+                      <button disabled={payBusy} onClick={checkoutBankTransfer} className="px-3 py-2 rounded-lg bg-amber-500 disabled:opacity-50 text-slate-950 font-bold text-xs">
                         Hantar Transfer
                       </button>
                     </div>
@@ -1025,33 +1000,31 @@ export default function App() {
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
               <h2 className="text-sm font-bold text-amber-400">Sejarah Pembayaran</h2>
-              {payments.map((p) => (
-                <div key={p.id} className="flex flex-wrap justify-between items-center gap-2 bg-slate-950 p-3 rounded-lg text-xs">
-                  <div>
-                    <p className="font-bold">{p.reference_no} ({p.payment_method.toUpperCase()})</p>
-                    <p className="text-[11px] text-slate-400">Ref Bank: {p.bank_transfer_ref || '-'} • RM{Number(p.total_amount).toFixed(2)}</p>
+              {mine.length === 0 && <p className="text-xs text-slate-400">Belum ada pembayaran.</p>}
+              {mine.map((p) => (
+                <div key={p.id} className="bg-slate-950 p-3 rounded-lg text-xs space-y-1.5">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
+                    <div>
+                      <p className="font-bold">{p.reference_no} <span className="font-normal text-slate-400">({p.payment_method === 'fpx' ? 'FPX' : 'Bank Transfer'})</span></p>
+                      <p className="text-[11px] text-slate-400">{new Date(p.created_at).toLocaleString('ms-MY')} • RM{Number(p.total_amount).toFixed(2)}{p.bank_transfer_ref ? ` • Ref Bank: ${p.bank_transfer_ref}` : ''}</p>
+                    </div>
+                    <StatusBadge status={p.status} />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded font-semibold ${p.status === 'paid' ? 'bg-emerald-900 text-emerald-300' : 'bg-amber-900 text-amber-300'}`}>
-                      {p.status}
-                    </span>
-                    {actingAsStaff && p.status !== 'paid' && (
-                      <button
-                        onClick={async () => {
-                          await supabase.from('payments').update({ status: 'paid', verified_by: session.user.id, paid_at: new Date().toISOString() }).eq('id', p.id);
-                          loadAllData(session.user.id);
-                        }}
-                        className="px-2 py-1 rounded bg-emerald-600 text-[11px] font-bold"
-                      >
-                        Sahkan Bayaran
-                      </button>
-                    )}
-                  </div>
+                  <ul className="text-[11px] text-slate-500 list-disc pl-4">{(p.items || []).map((i, k) => <li key={k}>{i.label}</li>)}</ul>
+                  {p.status === 'pending' && (
+                    <div className="flex gap-2 pt-1">
+                      {p.payment_method === 'fpx' && p.pay_url && (
+                        <a href={p.pay_url} className="px-3 py-1.5 rounded-lg bg-emerald-600 font-bold text-[11px]">Teruskan Bayaran</a>
+                      )}
+                      <button onClick={() => cancelPayment(p.id)} className="px-3 py-1.5 rounded-lg bg-red-950/70 border border-red-900 text-red-300 font-semibold text-[11px]">Batalkan</button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* TAB 6: ABOUT ACADEMY, ORG CHART, BRANCHES & RULES */}
         {tab === 'about' && (
@@ -1131,67 +1104,14 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 7: MANAGE BRANCHES & USERS (ADMIN & COACH) */}
+        {/* TAB 7: ADMIN PANEL */}
         {tab === 'manage' && actingAsStaff && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-              <h2 className="text-sm font-bold text-amber-400">Urus Cawangan Akademi</h2>
-              <form onSubmit={handleAddBranch} className="grid sm:grid-cols-2 gap-2 text-xs">
-                <input className="px-3 py-2 rounded-lg bg-slate-800" placeholder="Nama Cawangan (cth: Kuala Lumpur)" value={newBranch.name} onChange={(e) => setNewBranch({ ...newBranch, name: e.target.value })} required />
-                <input className="px-3 py-2 rounded-lg bg-slate-800" placeholder="Negeri (cth: WP Kuala Lumpur)" value={newBranch.state} onChange={(e) => setNewBranch({ ...newBranch, state: e.target.value })} required />
-                <input className="px-3 py-2 rounded-lg bg-slate-800" placeholder="Alamat Gelanggang" value={newBranch.address} onChange={(e) => setNewBranch({ ...newBranch, address: e.target.value })} />
-                <input className="px-3 py-2 rounded-lg bg-slate-800" placeholder="Jadual Latihan" value={newBranch.training_schedule} onChange={(e) => setNewBranch({ ...newBranch, training_schedule: e.target.value })} />
-                <button className="sm:col-span-2 py-2 rounded-lg bg-emerald-600 font-bold">Tambah Cawangan Baharu</button>
-              </form>
-              <div className="space-y-2 pt-2">
-                {branches.map((b) => (
-                  <div key={b.id} className="flex justify-between items-center bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs">
-                    <div>
-                      <p className="font-bold text-white">{b.name} ({b.state})</p>
-                      <p className="text-[11px] text-slate-400">{b.address} • {b.training_schedule}</p>
-                    </div>
-                    <button onClick={() => handleDeleteBranch(b.id, b.name)} className="p-1.5 rounded bg-red-950 text-red-300 hover:bg-red-900">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-              <h2 className="text-sm font-bold text-amber-400">Urus Peranan Pengguna (Coach / Ibu Bapa / Pesilat)</h2>
-              <div className="space-y-2">
-                {allProfiles.map((u) => (
-                  <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs">
-                    <div>
-                      <p className="font-bold text-white">{u.full_name}</p>
-                      <p className="text-[11px] text-slate-400">
-                        {u.phone || '-'} • IC: {u.ic_no || '-'} • {branchNameById[u.branch_id] || 'Tiada Cawangan'}
-                      </p>
-                    </div>
-                    {u.role === 'admin' ? (
-                      <span className="px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 font-bold text-[11px]">MASTER ADMIN</span>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <select
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-semibold text-emerald-300"
-                          value={u.role}
-                          onChange={(e) => updateUserRole(u.id, e.target.value)}
-                        >
-                          <option value="parent">Ibu Bapa</option>
-                          <option value="student">Pesilat</option>
-                          <option value="coach">Jurulatih (Coach)</option>
-                        </select>
-                        <button onClick={() => deleteUserProfile(u.id, u.full_name)} className="p-1.5 rounded-lg bg-red-950 text-red-300 hover:bg-red-900" title="Padam Pengguna">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <AdminPanel
+            me={session.user.id} isAdmin={isAdmin} profiles={allProfiles} branches={branches}
+            students={students} tournaments={tournaments} products={products} feeTypes={feeTypes}
+            payments={payments} branchName={branchNameById} reload={() => loadAllData(session.user.id)}
+            upload={uploadClubImage}
+          />
         )}
       </main>
 
@@ -1257,6 +1177,26 @@ export default function App() {
                 <option value={2}>Tahap 2: Hitam Belang Putih</option>
                 <option value={3}>Tahap 3: Hitam Penuh</option>
               </select>
+              <select className="px-3 py-2 rounded bg-slate-800" value={editingStudent.gender || 'Lelaki'} onChange={(e) => setEditingStudent({ ...editingStudent, gender: e.target.value })}>
+                <option>Lelaki</option>
+                <option>Perempuan</option>
+              </select>
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="Alamat" value={editingStudent.address || ''} onChange={(e) => setEditingStudent({ ...editingStudent, address: e.target.value })} />
+              <div className="col-span-2 bg-slate-950 rounded-lg p-3 space-y-2">
+                <p className="text-[11px] font-bold text-amber-300">Markah Penilaian (0-100) — Skor Keseluruhan dikira automatik</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {SCORE_KEYS.map(([k, label]) => (
+                    <label key={k} className="flex items-center justify-between gap-2 text-[11px] text-slate-300">
+                      {label}
+                      <input type="number" min="0" max="100" className="w-16 px-2 py-1 rounded bg-slate-800 text-right"
+                        value={editingStudent.scores?.[k] ?? 60}
+                        onChange={(e) => setEditingStudent({ ...editingStudent, scores: { ...(editingStudent.scores || {}), [k]: e.target.value } })} />
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <textarea rows={2} className="col-span-2 px-3 py-2 rounded bg-slate-800" placeholder="Kelemahan / Sebab" value={editingStudent.sebab || ''} onChange={(e) => setEditingStudent({ ...editingStudent, sebab: e.target.value })} />
+              <textarea rows={2} className="col-span-2 px-3 py-2 rounded bg-slate-800" placeholder="Penambahbaikan / Cadangan latihan" value={editingStudent.penambahbaikan || ''} onChange={(e) => setEditingStudent({ ...editingStudent, penambahbaikan: e.target.value })} />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setEditingStudent(null)} className="px-4 py-2 rounded-lg bg-slate-800 text-xs">Batal</button>
