@@ -614,15 +614,19 @@ function AcademyEditor({ academyInfo, run }) {
       <div className={card}>
         <h2 className="text-sm font-bold text-amber-400">Carta Organisasi</h2>
         {org.map((o, i) => (
-          <div key={i} className="grid sm:grid-cols-4 gap-2">
+          <div key={i} className="grid sm:grid-cols-6 gap-2">
+            <select className={inp} value={o.level ?? 2} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, level: Number(e.target.value) } : x))}>
+              <option value={0}>Guru Utama</option><option value={1}>Guru Adat</option><option value={2}>Guru</option><option value={3}>Jurulatih / Pembantu</option>
+            </select>
             <input className={inp} placeholder="Jawatan" value={o.role || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, role: e.target.value } : x))} />
+            <input className={inp} placeholder="Di bawah (nama guru)" value={o.under || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, under: e.target.value } : x))} />
             <input className={inp} placeholder="Nama" value={o.name || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, name: e.target.value } : x))} />
             <input className={inp} placeholder="Cawangan" value={o.branch || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, branch: e.target.value } : x))} />
             <button onClick={() => setOrg(org.filter((_, k) => k !== i))} className="p-1.5 rounded-lg bg-red-950 text-red-300 justify-self-start"><Trash2 className="w-4 h-4" /></button>
           </div>
         ))}
         <div className="flex gap-2">
-          <button onClick={() => setOrg([...org, { role: '', name: '', branch: '' }])} className={`${btn} bg-slate-800 flex items-center gap-1`}><Plus className="w-3.5 h-3.5" />Tambah</button>
+          <button onClick={() => setOrg([...org, { level: 3, role: 'Jurulatih', name: '', branch: '', under: '' }])} className={`${btn} bg-slate-800 flex items-center gap-1`}><Plus className="w-3.5 h-3.5" />Tambah</button>
           <button onClick={() => save('org_chart', org.filter((o) => o.name?.trim()))} className={`${btn} bg-emerald-600`}>Simpan Carta</button>
         </div>
       </div>

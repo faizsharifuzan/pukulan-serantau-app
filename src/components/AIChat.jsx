@@ -62,8 +62,9 @@ export default function AIChat({ me, isStaff, isAdmin, students, branchName, rel
     const next = [...msgs, { role: 'user', content }];
     setMsgs(next); setText(''); setBusy(true);
     const { data, error } = await supabase.functions.invoke('ai-chat', { body: { messages: next.map(({ role, content }) => ({ role, content })) } });
-    let err = data?.error;
-    if (error && !err) { try { err = (await error.context.json()).error; } catch (_) { err = error.message; } }
+    let err = data?.error; let tried = data?.tried;
+    if (error && !err) { try { const b = await error.context.json(); err = b.error; tried = b.tried; } catch (_) { err = error.message; } }
+    if (err && isAdmin && tried?.length) err += `\n[Admin] Percubaan gagal: ${tried.join(', ')}`;
     setBusy(false);
     if (err) return setMsgs([...next, { role: 'assistant', content: err, error: true }]);
     setMsgs([...next, { role: 'assistant', content: data.reply || '(tiada jawapan)', actions: (data.actions || []).map((a) => ({ a, state: 'pending' })) }]);
