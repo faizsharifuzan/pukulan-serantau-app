@@ -10,7 +10,10 @@ import { getPersilatWeightClass, getAgeCategory, checkTournamentEligibility } fr
 import { SEED_STUDENTS } from './data/seedStudents';
 import PSSPSLogo from './components/PSSPSLogo';
 import BengkungVisualizer from './components/BengkungVisualizer';
-import AdminPanel, { StatusBadge } from './components/AdminPanel';
+import AdminPanel from './components/AdminPanel';
+import PaymentMethods from './components/PaymentMethods';
+import { StatusBadge, PaymentHistory, rm } from './components/PaymentUI';
+import { MyPayslips } from './components/Payslips';
 
 const SCORE_KEYS = [
   ['seni', 'Seni'], ['power', 'Power'], ['speed', 'Speed'], ['combat', 'Combat'],
@@ -47,6 +50,8 @@ export default function App() {
   const [payments, setPayments] = useState([]);
   const [cart, setCart] = useState([]);
   const [feeTypes, setFeeTypes] = useState([]);
+  const [branchFees, setBranchFees] = useState([]);
+  const [refunds, setRefunds] = useState([]);
   const [claimables, setClaimables] = useState([]);
   const [payBusy, setPayBusy] = useState(false);
   const [returnRef, setReturnRef] = useState(() => new URLSearchParams(window.location.search).get('ref'));
@@ -60,7 +65,6 @@ export default function App() {
     id: '', short_name: '', full_name: '', ic_no: '', age: 10, gender: 'Lelaki',
     school: '', parent_name: '', parent_phone: '', current_weight: '', branch_id: '', class_tier: 'Beginner', bengkung_stage: 1
   });
-  const [bankRef, setBankRef] = useState('');
   const [editingAbout, setEditingAbout] = useState(false);
   const [aboutForm, setAboutForm] = useState({ title: '', tagline: '', description: '', vision: '', mission: '' });
 
@@ -106,7 +110,9 @@ export default function App() {
       { data: brs },
       { data: infoRows },
       { data: fees },
-      { data: claimable }
+      { data: claimable },
+      { data: bfees },
+      { data: refs }
     ] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase.from('students').select('*').order('id'),
@@ -115,8 +121,10 @@ export default function App() {
       supabase.from('payments').select('*').order('created_at', { ascending: false }),
       supabase.from('branches').select('*').order('name'),
       supabase.from('academy_info').select('*'),
-      supabase.from('fee_types').select('*').eq('active', true).order('sort'),
+      supabase.from('fee_types').select('*').order('sort'),
       supabase.rpc('list_claimable_students'),
+      supabase.from('branch_fees').select('*'),
+      supabase.from('payment_refunds').select('*').order('created_at', { ascending: false }),
     ]);
 
     const currentProf = prof || { id: userId, role: 'parent', full_name: 'Pengguna' };
@@ -127,6 +135,9 @@ export default function App() {
     setPayments(pays || []);
     if (brs) setBranches(brs);
     setFeeTypes(fees || []);
+    setBranchFees(bfees || []);
+    setRefunds(refs || []);
+    if (currentProf.role === 'coach' && currentProf.branch_id) setSelectedBranch(currentProf.branch_id);
     setClaimables(claimable || []);
 
     const infoMap = Object.fromEntries((infoRows || []).map((r) => [r.key, r.value]));
@@ -134,6 +145,7 @@ export default function App() {
       about: infoMap.about || {},
       org_chart: infoMap.org_chart || [],
       rules: infoMap.rules || {},
+      payment: infoMap.payment || {},
     });
     setAboutForm(infoMap.about || { title: 'Akademi Pukulan Serantau', tagline: '', description: '', vision: '', mission: '' });
 
@@ -217,7 +229,7 @@ export default function App() {
       parent_phone: newStudent.parent_phone ? `+60${newStudent.parent_phone.replace(/\D/g, '').replace(/^60/, '').replace(/^0/, '')}` : '',
       current_weight: wt,
       weight_class: wt ? getPersilatWeightClass(age, wt) : 'Belum Ditimbang',
-      branch_id: newStudent.branch_id || branches[0]?.id || null,
+      branch_id: newStudent.branch_id || (profile?.role === 'coach' ? profile.branch_id : null) || branches[0]?.id || null,
       class_tier: newStudent.class_tier,
       bengkung_stage: Number(newStudent.bengkung_stage) || 1,
     };
@@ -288,7 +300,7 @@ export default function App() {
         const age = parseInt(r.Umur, 10) || 12;
         const wt = parseFloat(r.Berat_kg) || null;
         const matchedBranch = branches.find((b) => b.name.toLowerCase() === String(r.Cawangan || '').trim().toLowerCase());
-        const fallbackBranch = selectedBranch !== 'ALL' ? selectedBranch : branches[0]?.id || null;
+        const fallbackBranch = (profile?.role === 'coach' ? profile.branch_id : null) || (selectedBranch !== 'ALL' ? selectedBranch : branches[0]?.id || null);
         return {
           id: String(r.ID || `PS-${String(idx + 1).padStart(3, '0')}`).trim().toUpperCase(),
           short_name: String(r.Nama_Pendek || r.Nama_Penuh || 'Pesilat').trim().toUpperCase(),
@@ -424,20 +436,6 @@ export default function App() {
     } finally { setPayBusy(false); }
   }
 
-  async function checkoutBankTransfer() {
-    if (!cart.length || payBusy) return;
-    if (!bankRef.trim()) return alert('Sila masukkan nombor rujukan transaksi bank.');
-    setPayBusy(true);
-    try {
-      const { data, error } = await supabase.rpc('create_payment_order', { p_items: orderItems(), p_method: 'bank_transfer', p_bank_ref: bankRef.trim() });
-      if (error) return alert(error.message);
-      setCart([]);
-      setBankRef('');
-      alert(`Bukti bayaran (${data.reference_no}) dihantar untuk pengesahan.`);
-      loadAllData(session.user.id);
-    } finally { setPayBusy(false); }
-  }
-
   async function cancelPayment(id) {
     if (!confirm('Batalkan bayaran ini?')) return;
     const { error } = await supabase.rpc('cancel_payment_order', { p_id: id });
@@ -552,6 +550,20 @@ export default function App() {
     );
   }
 
+  const lockBranch = profile?.role === 'coach' && !viewAsParent ? profile?.branch_id : null;
+  const visibleBranches = lockBranch ? branches.filter((b) => b.id === lockBranch) : branches;
+  const activeFeeTypes = feeTypes.filter((f) => f.active);
+  const feesForStudent = (st) => {
+    const list = [];
+    activeFeeTypes.forEach((f) => {
+      const o = branchFees.find((b) => b.branch_id === st.branch_id && b.fee_code === f.code);
+      if (o && !o.active) return;
+      list.push({ code: f.code, label: f.label, amount: Number(o ? o.amount : f.amount) });
+    });
+    branchFees.filter((b) => b.branch_id === st.branch_id && b.active && !feeTypes.some((f) => f.code === b.fee_code))
+      .forEach((b) => list.push({ code: b.fee_code, label: b.label || b.fee_code, amount: Number(b.amount) }));
+    return list;
+  };
   const branchFilteredStudents = selectedBranch === 'ALL'
     ? students
     : students.filter((s) => s.branch_id === selectedBranch);
@@ -572,7 +584,7 @@ export default function App() {
     { id: 'about', label: 'Tentang Kami', icon: Info },
   ];
   if (actingAsStaff) {
-    navTabs.push({ id: 'manage', label: isAdmin ? 'Pentadbiran' : 'Pautan & Bayaran', icon: Building2 });
+    navTabs.push({ id: 'manage', label: isAdmin ? 'Pentadbiran' : 'Pengurusan Cawangan', icon: Building2 });
   }
 
   return (
@@ -628,13 +640,15 @@ export default function App() {
               <div className="space-y-3 bg-slate-900 p-4 rounded-xl border border-slate-800">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-slate-400 font-semibold">Tapis Cawangan:</span>
-                  <button
-                    onClick={() => setSelectedBranch('ALL')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${selectedBranch === 'ALL' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}
-                  >
-                    Semua ({students.length})
-                  </button>
-                  {branches.map((b) => (
+                  {!lockBranch && (
+                    <button
+                      onClick={() => setSelectedBranch('ALL')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${selectedBranch === 'ALL' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}
+                    >
+                      Semua ({students.length})
+                    </button>
+                  )}
+                  {visibleBranches.map((b) => (
                     <button
                       key={b.id}
                       onClick={() => setSelectedBranch(b.id)}
@@ -780,7 +794,7 @@ export default function App() {
             {isAdmin && actingAsStaff && <p className="text-[11px] text-slate-400">Cipta / edit / padam kejohanan di tab <b>Pentadbiran → Kejohanan</b>.</p>}
 
             <div className="grid sm:grid-cols-2 gap-4">
-              {tournaments.map((t) => (
+              {tournaments.filter((t) => actingAsStaff || !t.branch_id || myStudents.length === 0 || myStudents.some((c) => c.branch_id === t.branch_id)).map((t) => (
                 <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
                   {t.poster_url && <img src={t.poster_url} alt={t.title} className="w-full h-44 object-cover" />}
                   <div className="p-4 space-y-2">
@@ -826,30 +840,27 @@ export default function App() {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <h2 className="text-sm font-bold text-amber-400 mb-3">Yuran Rasmi Akademi (Multi-Anak)</h2>
               <div className="grid sm:grid-cols-3 gap-3">
-                {feeTypes.map((fee) => (
-                  <div key={fee.code} className="bg-slate-950 border border-slate-800 p-3 rounded-lg space-y-2">
-                    <p className="text-xs font-bold">{fee.label}</p>
-                    <p className="text-lg font-bold text-emerald-400">RM{Number(fee.amount).toFixed(2)}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {myStudents.slice(0, 6).map((c) => (
+                {myStudents.slice(0, 12).map((c) => (
+                  <div key={c.id} className="bg-slate-950 border border-slate-800 p-3 rounded-lg space-y-2">
+                    <p className="text-xs font-bold">{c.full_name || c.short_name} <span className="font-normal text-slate-500">• {branchNameById[c.branch_id] || '-'}</span></p>
+                    {feesForStudent(c).map((fee) => (
+                      <div key={fee.code} className="flex items-center justify-between gap-2 text-xs">
+                        <span>{fee.label} <b className="text-emerald-400">{rm(fee.amount)}</b></span>
                         <button
-                          key={c.id}
-                          onClick={() => addToCart({ student_id: c.id, type: 'fee', fee_code: fee.code, label: `${fee.label} (${c.short_name})`, amount: Number(fee.amount) })}
+                          onClick={() => addToCart({ student_id: c.id, type: 'fee', fee_code: fee.code, label: `${fee.label} (${c.short_name})`, amount: fee.amount })}
                           className="px-2 py-1 rounded bg-emerald-900/70 hover:bg-emerald-700 text-[10px]"
-                        >
-                          + {c.short_name}
-                        </button>
-                      ))}
-                    </div>
+                        >+ Troli</button>
+                      </div>
+                    ))}
                   </div>
                 ))}
-                {feeTypes.length === 0 && <p className="text-xs text-slate-400">Tiada yuran aktif.</p>}
+                {myStudents.length > 0 && activeFeeTypes.length === 0 && <p className="text-xs text-slate-400">Tiada yuran aktif.</p>}
               </div>
               {myStudents.length === 0 && <p className="text-[11px] text-amber-300 mt-2">Pilih profil anak anda di tab "Anak Saya" dahulu untuk membayar yuran.</p>}
             </div>
 
             <div className="grid sm:grid-cols-3 gap-4">
-              {products.filter((p) => p.in_stock || isAdmin).map((p) => (
+              {products.filter((p) => (p.in_stock || isAdmin) && (actingAsStaff || !p.branch_id || myStudents.length === 0 || myStudents.some((c) => c.branch_id === p.branch_id))).map((p) => (
                 <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
                   {p.image_url && <img src={p.image_url} alt={p.name} className="w-full h-36 object-cover" />}
                   <div className="p-3 space-y-2">
@@ -912,45 +923,16 @@ export default function App() {
                     <span className="text-xl font-bold text-amber-400">RM{cartTotal.toFixed(2)}</span>
                   </div>
                   <p className="text-[10px] text-slate-500">Jumlah muktamad dikira & disahkan oleh pelayan semasa pembayaran.</p>
-                  <div className="grid sm:grid-cols-2 gap-3 pt-2">
-                    <button disabled={payBusy} onClick={checkoutFPX} className="py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 font-bold text-xs">
-                      {payBusy ? 'Memproses...' : 'Bayar Online FPX (Herepay)'}
-                    </button>
-                    <div className="flex gap-2">
-                      <input className="flex-1 px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="No. Rujukan Bank Transfer" value={bankRef} onChange={(e) => setBankRef(e.target.value)} />
-                      <button disabled={payBusy} onClick={checkoutBankTransfer} className="px-3 py-2 rounded-lg bg-amber-500 disabled:opacity-50 text-slate-950 font-bold text-xs">
-                        Hantar Transfer
-                      </button>
-                    </div>
-                  </div>
+                  <PaymentMethods
+                    info={academyInfo.payment} items={orderItems()} cartTotal={cartTotal} session={session}
+                    busy={payBusy} setBusy={setPayBusy} onFpx={checkoutFPX}
+                    onDone={(d) => { setCart([]); alert(`Resit dihantar (${d.reference_no}). Menunggu pengesahan jurulatih/admin.`); loadAllData(session.user.id); }}
+                  />
                 </>
               )}
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-              <h2 className="text-sm font-bold text-amber-400">Sejarah Pembayaran</h2>
-              {mine.length === 0 && <p className="text-xs text-slate-400">Belum ada pembayaran.</p>}
-              {mine.map((p) => (
-                <div key={p.id} className="bg-slate-950 p-3 rounded-lg text-xs space-y-1.5">
-                  <div className="flex flex-wrap justify-between items-center gap-2">
-                    <div>
-                      <p className="font-bold">{p.reference_no} <span className="font-normal text-slate-400">({p.payment_method === 'fpx' ? 'FPX' : 'Bank Transfer'})</span></p>
-                      <p className="text-[11px] text-slate-400">{new Date(p.created_at).toLocaleString('ms-MY')} • RM{Number(p.total_amount).toFixed(2)}{p.bank_transfer_ref ? ` • Ref Bank: ${p.bank_transfer_ref}` : ''}</p>
-                    </div>
-                    <StatusBadge status={p.status} />
-                  </div>
-                  <ul className="text-[11px] text-slate-500 list-disc pl-4">{(p.items || []).map((i, k) => <li key={k}>{i.label}</li>)}</ul>
-                  {p.status === 'pending' && (
-                    <div className="flex gap-2 pt-1">
-                      {p.payment_method === 'fpx' && p.pay_url && (
-                        <a href={p.pay_url} className="px-3 py-1.5 rounded-lg bg-emerald-600 font-bold text-[11px]">Teruskan Bayaran</a>
-                      )}
-                      <button onClick={() => cancelPayment(p.id)} className="px-3 py-1.5 rounded-lg bg-red-950/70 border border-red-900 text-red-300 font-semibold text-[11px]">Batalkan</button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <PaymentHistory payments={mine} refunds={refunds} onCancel={cancelPayment} />
           </div>
           );
         })()}
@@ -1035,12 +1017,16 @@ export default function App() {
 
         {/* TAB 7: ADMIN PANEL */}
         {tab === 'manage' && actingAsStaff && (
-          <AdminPanel
-            me={session.user.id} isAdmin={isAdmin} profiles={allProfiles} branches={branches}
-            students={students} tournaments={tournaments} products={products} feeTypes={feeTypes}
-            payments={payments} branchName={branchNameById} reload={() => loadAllData(session.user.id)}
-            upload={uploadClubImage}
-          />
+          <div className="space-y-4">
+            {profile?.role === 'coach' && <MyPayslips clubName={academyInfo.about?.title} />}
+            <AdminPanel
+              me={session.user.id} isAdmin={isAdmin} myBranch={profile?.branch_id || null} profiles={allProfiles} branches={branches}
+              students={students} tournaments={tournaments} products={products}
+              feeTypes={activeFeeTypes} allFeeTypes={feeTypes} branchFees={branchFees}
+              payments={payments} refunds={refunds} academyInfo={academyInfo}
+              branchName={branchNameById} reload={() => loadAllData(session.user.id)} upload={uploadClubImage}
+            />
+          </div>
         )}
       </main>
 
@@ -1057,7 +1043,7 @@ export default function App() {
               <input className="px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama Panggilan" value={newStudent.short_name} onChange={(e) => setNewStudent({ ...newStudent, short_name: e.target.value })} />
               <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. IC (12 digit tanpa -)" maxLength={12} value={newStudent.ic_no} onChange={(e) => setNewStudent({ ...newStudent, ic_no: e.target.value.replace(/\D/g, '') })} />
               <select className="px-3 py-2 rounded bg-slate-800" value={newStudent.branch_id} onChange={(e) => setNewStudent({ ...newStudent, branch_id: e.target.value })}>
-                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                {visibleBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
               <input type="number" className="px-3 py-2 rounded bg-slate-800" placeholder="Umur" value={newStudent.age} onChange={(e) => setNewStudent({ ...newStudent, age: e.target.value })} />
               <input type="number" step="0.1" className="px-3 py-2 rounded bg-slate-800" placeholder="Berat (kg)" value={newStudent.current_weight} onChange={(e) => setNewStudent({ ...newStudent, current_weight: e.target.value })} />
@@ -1085,7 +1071,7 @@ export default function App() {
               <input className="col-span-2 px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama Penuh" value={editingStudent.full_name || ''} onChange={(e) => setEditingStudent({ ...editingStudent, full_name: e.target.value })} />
               <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. IC (tanpa -)" maxLength={12} value={editingStudent.ic_no || ''} onChange={(e) => setEditingStudent({ ...editingStudent, ic_no: e.target.value.replace(/\D/g, '') })} />
               <select className="px-3 py-2 rounded bg-slate-800" value={editingStudent.branch_id || ''} onChange={(e) => setEditingStudent({ ...editingStudent, branch_id: e.target.value })}>
-                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                {visibleBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
               <input type="number" className="px-3 py-2 rounded bg-slate-800" placeholder="Umur" value={editingStudent.age || ''} onChange={(e) => setEditingStudent({ ...editingStudent, age: e.target.value })} />
               <input type="number" step="0.1" className="px-3 py-2 rounded bg-slate-800 border border-amber-500/60" placeholder="Berat Semasa (kg)" value={editingStudent.current_weight || ''} onChange={(e) => setEditingStudent({ ...editingStudent, current_weight: e.target.value })} />

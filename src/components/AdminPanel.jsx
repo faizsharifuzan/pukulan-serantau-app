@@ -1,30 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Trash2, Plus, Upload, Check, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { StatusBadge, STATUS_LABEL, METHOD_LABEL, RefundLines, openReceipt, rm } from './PaymentUI';
+import { PayslipAdmin } from './Payslips';
 
 const inp = 'px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs w-full';
 const btn = 'px-3 py-1.5 rounded-lg text-xs font-semibold';
 const card = 'bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3';
-
-const STATUS_STYLE = {
-  paid: 'bg-emerald-900 text-emerald-300',
-  pending: 'bg-amber-900 text-amber-300',
-  pending_verification: 'bg-sky-900 text-sky-300',
-  failed: 'bg-red-900 text-red-300',
-  cancelled: 'bg-slate-800 text-slate-400',
-};
-export const STATUS_LABEL = {
-  paid: 'Berjaya',
-  pending: 'Menunggu Bayaran',
-  pending_verification: 'Menunggu Pengesahan',
-  failed: 'Gagal',
-  cancelled: 'Dibatalkan',
-};
-export const StatusBadge = ({ status }) => (
-  <span className={`px-2 py-0.5 rounded font-semibold text-[11px] ${STATUS_STYLE[status] || 'bg-slate-800 text-slate-300'}`}>
-    {STATUS_LABEL[status] || status}
-  </span>
-);
 
 function useRun(reload) {
   const [busy, setBusy] = useState(false);
@@ -44,20 +26,20 @@ function useRun(reload) {
 }
 
 /* ---------------- USERS ---------------- */
-function UserRow({ u, me, branches, branchName, run }) {
+function UserRow({ u, me, isAdmin, branches, branchName, run }) {
   const [edit, setEdit] = useState(false);
   const [f, setF] = useState(u);
   const isMe = u.id === me;
+  const privileged = u.role === 'admin' || u.role === 'coach';
+  const canTouch = isAdmin || (!privileged && !isMe);
   const save = async () => {
     const ic = (f.ic_no || '').replace(/\D/g, '');
     if (ic && ic.length !== 12) return alert('No. IC mesti 12 digit.');
     const ph = (f.phone || '').replace(/\D/g, '').replace(/^60/, '').replace(/^0/, '');
     if (ph && (ph.length < 8 || ph.length > 11)) return alert('No. telefon tidak sah.');
-    const ok = await run(() => supabase.from('profiles').update({
-      full_name: (f.full_name || '').trim().toUpperCase(),
-      ic_no: ic, phone: ph ? `+60${ph}` : '', branch_id: f.branch_id || null,
-    }).eq('id', u.id));
-    if (ok) setEdit(false);
+    const patch = { full_name: (f.full_name || '').trim().toUpperCase(), ic_no: ic, phone: ph ? `+60${ph}` : '' };
+    if (isAdmin) patch.branch_id = f.branch_id || null;
+    if (await run(() => supabase.from('profiles').update(patch).eq('id', u.id))) setEdit(false);
   };
   const setRole = (role) => run(() => supabase.from('profiles').update({ role }).eq('id', u.id));
   const setActive = (v) => run(() => supabase.from('profiles').update({ is_active: v }).eq('id', u.id));
@@ -76,27 +58,25 @@ function UserRow({ u, me, branches, branchName, run }) {
           <p className="text-[11px] text-slate-400">{u.phone || '-'} • IC: {u.ic_no || '-'} • {branchName[u.branch_id] || 'Tiada Cawangan'}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {u.requested_role === 'coach' && u.role !== 'coach' && (
+          {isAdmin && u.requested_role === 'coach' && u.role !== 'coach' && (
             <button onClick={() => setRole('coach')} className={`${btn} bg-amber-500 text-slate-950`}>Lulus Jurulatih</button>
           )}
-          <select
-            className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-semibold text-emerald-300 disabled:opacity-50"
-            value={u.role} disabled={isMe} onChange={(e) => setRole(e.target.value)}
-          >
-            <option value="parent">Ibu Bapa</option>
-            <option value="student">Pesilat</option>
-            <option value="coach">Jurulatih</option>
-            <option value="admin">Admin</option>
-          </select>
-          <button onClick={() => setEdit(!edit)} className={`${btn} bg-slate-800 text-amber-300`}>{edit ? 'Tutup' : 'Edit'}</button>
-          {!isMe && (
+          {isAdmin ? (
+            <select className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-semibold text-emerald-300 disabled:opacity-50"
+              value={u.role} disabled={isMe} onChange={(e) => setRole(e.target.value)}>
+              <option value="parent">Ibu Bapa</option>
+              <option value="student">Pesilat</option>
+              <option value="coach">Jurulatih</option>
+              <option value="admin">Admin</option>
+            </select>
+          ) : (
+            <span className="px-2 py-1 rounded bg-slate-800 text-emerald-300 font-semibold uppercase text-[10px]">{u.role}</span>
+          )}
+          {canTouch && <button onClick={() => setEdit(!edit)} className={`${btn} bg-slate-800 text-amber-300`}>{edit ? 'Tutup' : 'Edit'}</button>}
+          {canTouch && !isMe && (
             <>
-              <button onClick={() => setActive(u.is_active === false)} className={`${btn} bg-slate-800 text-slate-200`}>
-                {u.is_active === false ? 'Aktifkan' : 'Nyahaktif'}
-              </button>
-              {u.role !== 'admin' && (
-                <button onClick={del} className="p-1.5 rounded-lg bg-red-950 text-red-300 hover:bg-red-900" title="Padam"><Trash2 className="w-4 h-4" /></button>
-              )}
+              <button onClick={() => setActive(u.is_active === false)} className={`${btn} bg-slate-800 text-slate-200`}>{u.is_active === false ? 'Aktifkan' : 'Nyahaktif'}</button>
+              {u.role !== 'admin' && <button onClick={del} className="p-1.5 rounded-lg bg-red-950 text-red-300 hover:bg-red-900" title="Padam"><Trash2 className="w-4 h-4" /></button>}
             </>
           )}
         </div>
@@ -106,10 +86,12 @@ function UserRow({ u, me, branches, branchName, run }) {
           <input className={`${inp} uppercase`} placeholder="Nama" value={f.full_name || ''} onChange={(e) => setF({ ...f, full_name: e.target.value })} />
           <input className={inp} placeholder="No. IC (12 digit)" maxLength={12} value={f.ic_no || ''} onChange={(e) => setF({ ...f, ic_no: e.target.value.replace(/\D/g, '') })} />
           <input className={inp} placeholder="No. Tel (+60...)" value={f.phone || ''} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-          <select className={inp} value={f.branch_id || ''} onChange={(e) => setF({ ...f, branch_id: e.target.value })}>
-            <option value="">Tiada Cawangan</option>
-            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
+          {isAdmin ? (
+            <select className={inp} value={f.branch_id || ''} onChange={(e) => setF({ ...f, branch_id: e.target.value })}>
+              <option value="">Tiada Cawangan</option>
+              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          ) : <div />}
           <button onClick={save} className={`${btn} bg-emerald-600 sm:col-span-2`}>Simpan Pengguna</button>
         </div>
       )}
@@ -117,7 +99,7 @@ function UserRow({ u, me, branches, branchName, run }) {
   );
 }
 
-function UsersSection({ profiles, me, branches, branchName, run }) {
+function UsersSection({ profiles, me, isAdmin, branches, branchName, run }) {
   const [q, setQ] = useState('');
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -126,15 +108,13 @@ function UsersSection({ profiles, me, branches, branchName, run }) {
   const pendingCoach = profiles.filter((p) => p.requested_role === 'coach' && p.role !== 'coach');
   return (
     <div className={card}>
-      <h2 className="text-sm font-bold text-amber-400">Pengguna & Peranan ({profiles.length})</h2>
-      {pendingCoach.length > 0 && (
-        <p className="text-[11px] bg-amber-500/10 border border-amber-500/40 text-amber-300 rounded-lg p-2">
-          {pendingCoach.length} permohonan jurulatih menunggu kelulusan.
-        </p>
+      <h2 className="text-sm font-bold text-amber-400">Pengguna {isAdmin ? '& Peranan' : '(cawangan anda)'} ({profiles.length})</h2>
+      {isAdmin && pendingCoach.length > 0 && (
+        <p className="text-[11px] bg-amber-500/10 border border-amber-500/40 text-amber-300 rounded-lg p-2">{pendingCoach.length} permohonan jurulatih menunggu kelulusan.</p>
       )}
       <input className={inp} placeholder="Cari nama / IC / telefon" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="space-y-2">
-        {list.map((u) => <UserRow key={u.id} u={u} me={me} branches={branches} branchName={branchName} run={run} />)}
+        {list.map((u) => <UserRow key={u.id + u.role + u.is_active} u={u} me={me} isAdmin={isAdmin} branches={branches} branchName={branchName} run={run} />)}
       </div>
     </div>
   );
@@ -160,10 +140,8 @@ function LinksSection({ students, profiles, run }) {
           <h2 className="text-sm font-bold text-amber-400">Tuntutan Menunggu Kelulusan ({pending.length})</h2>
           {pending.map((s) => (
             <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 p-3 rounded-lg text-xs">
-              <p>
-                <b>{nameOf[s.pending_claimant] || 'Pengguna'}</b> mahu tuntut <b>{s.full_name || s.short_name}</b>{' '}
-                <span className="text-slate-400">({s.pending_claim_role === 'student' ? 'sebagai pesilat' : 'sebagai ibu bapa'})</span>
-              </p>
+              <p><b>{nameOf[s.pending_claimant] || 'Pengguna'}</b> mahu tuntut <b>{s.full_name || s.short_name}</b>{' '}
+                <span className="text-slate-400">({s.pending_claim_role === 'student' ? 'sebagai pesilat' : 'sebagai ibu bapa'})</span></p>
               <div className="flex gap-2">
                 <button onClick={() => review(s.id, true)} className={`${btn} bg-emerald-600 flex items-center gap-1`}><Check className="w-3.5 h-3.5" />Lulus</button>
                 <button onClick={() => review(s.id, false)} className={`${btn} bg-red-900 text-red-200 flex items-center gap-1`}><X className="w-3.5 h-3.5" />Tolak</button>
@@ -184,10 +162,12 @@ function LinksSection({ students, profiles, run }) {
               </div>
               <select className={inp} value={s.parent_id || ''} onChange={(e) => assign(s.id, 'parent', e.target.value)}>
                 <option value="">— Tiada ibu bapa —</option>
+                {s.parent_id && !parents.some((p) => p.id === s.parent_id) && <option value={s.parent_id}>(akaun lain)</option>}
                 {parents.map((p) => <option key={p.id} value={p.id}>{p.full_name} ({p.role})</option>)}
               </select>
               <select className={inp} value={s.student_user_id || ''} onChange={(e) => assign(s.id, 'student', e.target.value)}>
                 <option value="">— Tiada akaun pesilat —</option>
+                {s.student_user_id && !studentAccts.some((p) => p.id === s.student_user_id) && <option value={s.student_user_id}>(akaun lain)</option>}
                 {studentAccts.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
               </select>
             </div>
@@ -198,10 +178,94 @@ function LinksSection({ students, profiles, run }) {
   );
 }
 
+/* ---------------- PAYMENTS (refund) ---------------- */
+function PaymentCard({ p, nameOf, refunds, run }) {
+  const [refunding, setRefunding] = useState(false);
+  const left = Number(p.total_amount) - Number(p.refunded_total || 0);
+  const [amt, setAmt] = useState(left);
+  const [reason, setReason] = useState('');
+  const setStatus = (status) => run(() => supabase.rpc('admin_set_payment_status', { p_id: p.id, p_status: status }));
+  const canRefund = ['paid', 'partially_refunded'].includes(p.status) && left > 0;
+  const open = !['paid', 'partially_refunded', 'refunded'].includes(p.status);
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs space-y-2">
+      <div className="flex flex-wrap justify-between gap-2">
+        <div>
+          <p className="font-bold text-white">{p.reference_no} <span className="text-slate-400 font-normal">• {METHOD_LABEL[p.payment_method] || p.payment_method}</span></p>
+          <p className="text-slate-400">{nameOf[p.parent_id] || 'Pengguna'} • {new Date(p.created_at).toLocaleString('ms-MY')}</p>
+          {p.bank_transfer_ref && <p className="text-slate-400">Ref: {p.bank_transfer_ref}</p>}
+        </div>
+        <div className="text-right space-y-1">
+          <p className="text-base font-bold text-amber-400">{rm(p.total_amount)}</p>
+          <StatusBadge status={p.status} />
+        </div>
+      </div>
+      <ul className="text-[11px] text-slate-400 list-disc pl-4">{(p.items || []).map((i, k) => <li key={k}>{i.label} — {rm(i.amount)}</li>)}</ul>
+      <RefundLines refunds={refunds} />
+      <div className="flex flex-wrap gap-2">
+        {p.receipt_url && <button onClick={() => openReceipt(p.receipt_url)} className={`${btn} bg-slate-800 text-amber-300`}>Lihat Resit</button>}
+        {['pending', 'pending_verification', 'failed', 'cancelled'].includes(p.status) && (
+          <button onClick={() => confirm(`Sahkan ${rm(p.total_amount)} telah diterima?`) && setStatus('paid')} className={`${btn} bg-emerald-600`}>Sahkan Diterima</button>
+        )}
+        {open && p.status !== 'failed' && <button onClick={() => setStatus('failed')} className={`${btn} bg-red-900 text-red-200`}>Tanda Gagal / Tolak</button>}
+        {open && p.status !== 'cancelled' && <button onClick={() => setStatus('cancelled')} className={`${btn} bg-slate-800 text-slate-200`}>Batalkan</button>}
+        {canRefund && <button onClick={() => setRefunding(!refunding)} className={`${btn} bg-purple-800 text-purple-100`}>Refund</button>}
+        {open && <button onClick={() => confirm('Padam rekod bayaran ini?') && run(() => supabase.rpc('admin_delete_payment', { p_id: p.id }))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>}
+      </div>
+      {refunding && (
+        <div className="grid sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800">
+          <input type="number" min="0.01" max={left} step="0.01" className={inp} value={amt} onChange={(e) => setAmt(e.target.value)} />
+          <input className={`${inp} sm:col-span-2`} placeholder="Sebab refund (wajib)" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <button className={`${btn} bg-purple-700`} onClick={async () => {
+            if (!confirm(`Rekod refund ${rm(amt)}? Wang perlu dipulangkan secara manual kepada pembayar.`)) return;
+            if (await run(() => supabase.rpc('refund_payment', { p_id: p.id, p_amount: Number(amt), p_reason: reason }))) { setRefunding(false); setReason(''); }
+          }}>Rekod Refund (maks {rm(left)})</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PaymentsSection({ payments, refunds, profiles, run }) {
+  const [filter, setFilter] = useState('all');
+  const nameOf = useMemo(() => Object.fromEntries(profiles.map((p) => [p.id, p.full_name])), [profiles]);
+  const list = payments.filter((p) => filter === 'all' || p.status === filter);
+  const received = payments.reduce((s, p) => ['paid', 'partially_refunded', 'refunded'].includes(p.status) ? s + Number(p.total_amount) : s, 0);
+  const refunded = payments.reduce((s, p) => s + Number(p.refunded_total || 0), 0);
+  return (
+    <div className={card}>
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <h2 className="text-sm font-bold text-amber-400">Pengurusan Bayaran</h2>
+        <p className="text-xs text-slate-300">Diterima <b className="text-emerald-400">{rm(received)}</b> • Refund <b className="text-purple-300">{rm(refunded)}</b> • Bersih <b className="text-amber-300">{rm(received - refunded)}</b></p>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {['all', 'pending', 'pending_verification', 'paid', 'partially_refunded', 'refunded', 'failed', 'cancelled'].map((s) => (
+          <button key={s} onClick={() => setFilter(s)} className={`${btn} ${filter === s ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>
+            {s === 'all' ? 'Semua' : STATUS_LABEL[s]}
+          </button>
+        ))}
+      </div>
+      <div className="space-y-2">
+        {list.length === 0 && <p className="text-xs text-slate-400">Tiada rekod.</p>}
+        {list.map((p) => <PaymentCard key={p.id + p.status + p.refunded_total} p={p} nameOf={nameOf} refunds={refunds.filter((r) => r.payment_id === p.id)} run={run} />)}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- TOURNAMENTS ---------------- */
 const EVENT_TYPES = ['Open Tournament', 'State/National Selection', 'Open Friendly Sparring', 'Internal Friendly'];
-function TournamentForm({ init, onSave, onCancel, upload, label }) {
-  const [t, setT] = useState(init);
+function BranchSelect({ value, onChange, branches, isAdmin, allLabel = 'Semua Cawangan' }) {
+  if (!isAdmin) return <div className={`${inp} text-slate-400`}>{branches[0]?.name || '-'}</div>;
+  return (
+    <select className={inp} value={value || ''} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">{allLabel}</option>
+      {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+    </select>
+  );
+}
+function TournamentForm({ init, onSave, onCancel, upload, label, branches, isAdmin, myBranch }) {
+  const [t, setT] = useState({ ...init, branch_id: isAdmin ? init.branch_id : myBranch });
   return (
     <div className="grid sm:grid-cols-2 gap-2">
       <input className={inp} placeholder="Nama Kejohanan" value={t.title} onChange={(e) => setT({ ...t, title: e.target.value })} />
@@ -211,7 +275,8 @@ function TournamentForm({ init, onSave, onCancel, upload, label }) {
       <input type="date" className={inp} value={t.event_date || ''} onChange={(e) => setT({ ...t, event_date: e.target.value })} />
       <input type="number" min="0" step="0.01" className={inp} placeholder="Yuran (RM)" value={t.entry_fee} onChange={(e) => setT({ ...t, entry_fee: e.target.value })} />
       <input className={inp} placeholder="Lokasi" value={t.location || ''} onChange={(e) => setT({ ...t, location: e.target.value })} />
-      <label className={`${inp} cursor-pointer flex items-center gap-2`}>
+      <BranchSelect value={t.branch_id} onChange={(v) => setT({ ...t, branch_id: v })} branches={branches} isAdmin={isAdmin} />
+      <label className={`${inp} cursor-pointer flex items-center gap-2 sm:col-span-2`}>
         <Upload className="w-4 h-4 text-amber-400" /> {t.poster_url ? 'Poster ✓ (tukar)' : 'Muat Naik Poster'}
         <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
           const f = e.target.files?.[0];
@@ -230,14 +295,15 @@ function TournamentForm({ init, onSave, onCancel, upload, label }) {
     </div>
   );
 }
-function TournamentsSection({ tournaments, run, me, upload }) {
+function TournamentsSection({ tournaments, run, me, upload, branches, branchName, isAdmin, myBranch }) {
   const [editId, setEditId] = useState(null);
-  const blank = { title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: '', description: '' };
+  const blank = { title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: '', description: '', branch_id: null };
+  const mine = (t) => isAdmin || (t.branch_id && t.branch_id === myBranch);
   return (
     <div className="space-y-4">
       <div className={card}>
         <h2 className="text-sm font-bold text-amber-400">Terbitkan Kejohanan Baharu</h2>
-        <TournamentForm key={tournaments.length} init={blank} upload={upload} label="Terbitkan"
+        <TournamentForm key={tournaments.length} init={blank} upload={upload} label="Terbitkan" branches={branches} isAdmin={isAdmin} myBranch={myBranch}
           onSave={(t) => run(() => supabase.from('tournaments').insert({ ...t, created_by: me }))} />
       </div>
       <div className={card}>
@@ -245,7 +311,7 @@ function TournamentsSection({ tournaments, run, me, upload }) {
         {tournaments.map((t) => (
           <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs space-y-2">
             {editId === t.id ? (
-              <TournamentForm init={t} upload={upload} label="Simpan" onCancel={() => setEditId(null)}
+              <TournamentForm init={t} upload={upload} label="Simpan" branches={branches} isAdmin={isAdmin} myBranch={myBranch} onCancel={() => setEditId(null)}
                 onSave={async (v) => {
                   const { id, created_at, created_by, ...rest } = v;
                   if (await run(() => supabase.from('tournaments').update(rest).eq('id', t.id))) setEditId(null);
@@ -254,13 +320,14 @@ function TournamentsSection({ tournaments, run, me, upload }) {
               <div className="flex flex-wrap justify-between items-center gap-2">
                 <div>
                   <p className="font-bold text-white">{t.title} <span className="text-amber-300 font-normal">• {t.event_type}</span></p>
-                  <p className="text-slate-400">{t.event_date} • {t.location || '-'} • RM{Number(t.entry_fee).toFixed(2)}</p>
+                  <p className="text-slate-400">{t.event_date} • {t.location || '-'} • {rm(t.entry_fee)} • {t.branch_id ? branchName[t.branch_id] : 'Semua cawangan'}</p>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setEditId(t.id)} className={`${btn} bg-slate-800 text-amber-300`}>Edit</button>
-                  <button onClick={() => confirm(`Padam kejohanan "${t.title}"?`) && run(() => supabase.from('tournaments').delete().eq('id', t.id))}
-                    className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
-                </div>
+                {mine(t) && (
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditId(t.id)} className={`${btn} bg-slate-800 text-amber-300`}>Edit</button>
+                    <button onClick={() => confirm(`Padam kejohanan "${t.title}"?`) && run(() => supabase.from('tournaments').delete().eq('id', t.id))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -270,34 +337,7 @@ function TournamentsSection({ tournaments, run, me, upload }) {
   );
 }
 
-/* ---------------- PRODUCTS & FEES ---------------- */
-function ProductRow({ p, run, upload }) {
-  const [f, setF] = useState(p);
-  const dirty = JSON.stringify(f) !== JSON.stringify(p);
-  return (
-    <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 grid sm:grid-cols-6 gap-2 items-center text-xs">
-      <input className={`${inp} sm:col-span-2`} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-      <input type="number" min="0" step="0.01" className={inp} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} />
-      <label className="flex items-center gap-1.5 cursor-pointer">
-        <input type="checkbox" checked={!!f.in_stock} onChange={(e) => setF({ ...f, in_stock: e.target.checked })} /> Ada Stok
-      </label>
-      <label className={`${btn} bg-slate-800 cursor-pointer text-center`}>
-        {f.image_url ? 'Gambar ✓' : 'Gambar'}
-        <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (file) { const url = await upload(file, 'products'); if (url) setF({ ...f, image_url: url }); }
-        }} />
-      </label>
-      <div className="flex gap-2 justify-end">
-        <button disabled={!dirty} onClick={() => run(() => supabase.from('products').update({
-          name: f.name.trim(), price: Number(f.price), in_stock: f.in_stock, image_url: f.image_url,
-        }).eq('id', p.id))} className={`${btn} bg-emerald-600 disabled:opacity-40`}>Simpan</button>
-        <button onClick={() => confirm(`Padam produk "${p.name}"?`) && run(() => supabase.from('products').delete().eq('id', p.id))}
-          className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
-      </div>
-    </div>
-  );
-}
+/* ---------------- FEES (default + per branch) & PRODUCTS ---------------- */
 function FeeRow({ fee, run }) {
   const [f, setF] = useState(fee);
   const dirty = JSON.stringify(f) !== JSON.stringify(fee);
@@ -308,36 +348,132 @@ function FeeRow({ fee, run }) {
       <input type="number" min="0" step="0.01" className={inp} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
       <div className="flex items-center gap-2 justify-end">
         <label className="flex items-center gap-1"><input type="checkbox" checked={!!f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} />Aktif</label>
-        <button disabled={!dirty} onClick={() => run(() => supabase.from('fee_types').update({ label: f.label.trim(), amount: Number(f.amount), active: f.active }).eq('code', fee.code))}
-          className={`${btn} bg-emerald-600 disabled:opacity-40`}>Simpan</button>
+        <button disabled={!dirty} onClick={() => run(() => supabase.from('fee_types').update({ label: f.label.trim(), amount: Number(f.amount), active: f.active }).eq('code', fee.code))} className={`${btn} bg-emerald-600 disabled:opacity-40`}>Simpan</button>
       </div>
     </div>
   );
 }
-function CatalogSection({ products, feeTypes, run, upload }) {
-  const [np, setNp] = useState({ name: '', price: 45, category: 'Merchandise', image_url: '' });
+function BranchFeeRow({ fee, branchId, override, run }) {
+  const [amt, setAmt] = useState(override ? override.amount : '');
+  const [active, setActive] = useState(override ? override.active : true);
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 grid sm:grid-cols-5 gap-2 items-center text-xs">
+      <div className="sm:col-span-2">
+        <p className="font-semibold text-white">{fee.label}</p>
+        <p className="text-[10px] text-slate-500">Default {rm(fee.amount)}{override ? '' : ' (guna default)'}</p>
+      </div>
+      <input type="number" min="0" step="0.01" className={inp} placeholder={`Default ${Number(fee.amount).toFixed(2)}`} value={amt} onChange={(e) => setAmt(e.target.value)} />
+      <label className="flex items-center gap-1"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />Ditawarkan</label>
+      <div className="flex gap-2 justify-end">
+        <button onClick={() => {
+          if (amt === '' && active) return alert('Isi harga cawangan, atau tekan Reset untuk guna default.');
+          run(() => supabase.from('branch_fees').upsert({ branch_id: branchId, fee_code: fee.code, amount: Number(amt || fee.amount), active, updated_at: new Date().toISOString() }, { onConflict: 'branch_id,fee_code' }));
+        }} className={`${btn} bg-emerald-600`}>Simpan</button>
+        {override && <button onClick={() => run(() => supabase.from('branch_fees').delete().eq('branch_id', branchId).eq('fee_code', fee.code))} className={`${btn} bg-slate-800`}>Reset</button>}
+      </div>
+    </div>
+  );
+}
+function FeesSection({ feeTypes, allFeeTypes, branchFees, branches, isAdmin, myBranch, run }) {
+  const scope = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
+  const [bid, setBid] = useState(scope[0]?.id || '');
   const [nf, setNf] = useState({ code: '', label: '', amount: 20 });
+  const [custom, setCustom] = useState({ label: '', amount: 20 });
+  const types = isAdmin ? allFeeTypes : feeTypes;
+  const customRows = branchFees.filter((b) => b.branch_id === bid && !types.some((t) => t.code === b.fee_code));
   return (
     <div className="space-y-4">
       <div className={card}>
-        <h2 className="text-sm font-bold text-amber-400">Jenis Yuran</h2>
-        {feeTypes.map((f) => <FeeRow key={f.code} fee={f} run={run} />)}
-        <div className="grid sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800 text-xs">
-          <input className={inp} placeholder="Kod (cth: tournament_prep)" value={nf.code} onChange={(e) => setNf({ ...nf, code: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })} />
-          <input className={inp} placeholder="Nama yuran" value={nf.label} onChange={(e) => setNf({ ...nf, label: e.target.value })} />
-          <input type="number" min="0" step="0.01" className={inp} value={nf.amount} onChange={(e) => setNf({ ...nf, amount: e.target.value })} />
-          <button className={`${btn} bg-emerald-600 flex items-center justify-center gap-1`} onClick={async () => {
-            if (!nf.code || !nf.label.trim()) return alert('Isi kod & nama.');
-            if (await run(() => supabase.from('fee_types').insert({ code: nf.code, label: nf.label.trim(), amount: Number(nf.amount), active: true, sort: feeTypes.length + 1 }))) setNf({ code: '', label: '', amount: 20 });
-          }}><Plus className="w-3.5 h-3.5" />Tambah</button>
+        <div className="flex flex-wrap justify-between items-center gap-2">
+          <h2 className="text-sm font-bold text-amber-400">Yuran Mengikut Cawangan</h2>
+          {isAdmin ? (
+            <select className="px-3 py-1.5 rounded-lg bg-slate-800 text-xs" value={bid} onChange={(e) => setBid(e.target.value)}>
+              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          ) : <span className="text-xs text-emerald-300">{scope[0]?.name}</span>}
         </div>
+        {!bid ? <p className="text-xs text-slate-400">Tiada cawangan.</p> : (
+          <>
+            {types.map((ft) => (
+              <BranchFeeRow key={bid + ft.code + JSON.stringify(branchFees.find((b) => b.branch_id === bid && b.fee_code === ft.code) || {})}
+                fee={ft} branchId={bid} override={branchFees.find((b) => b.branch_id === bid && b.fee_code === ft.code)} run={run} />
+            ))}
+            {customRows.map((c) => (
+              <div key={c.fee_code} className="bg-slate-950 border border-slate-800 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-semibold text-white">{c.label || c.fee_code} <span className="text-slate-500 font-normal">(yuran khas cawangan)</span></span>
+                <span className="flex items-center gap-2">
+                  <b className="text-emerald-400">{rm(c.amount)}</b>
+                  <button onClick={() => confirm('Padam yuran ini?') && run(() => supabase.from('branch_fees').delete().eq('branch_id', bid).eq('fee_code', c.fee_code))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
+                </span>
+              </div>
+            ))}
+            <div className="grid sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800 text-xs">
+              <input className={`${inp} sm:col-span-2`} placeholder="Yuran khas cawangan (cth: Sewa Gelanggang)" value={custom.label} onChange={(e) => setCustom({ ...custom, label: e.target.value })} />
+              <input type="number" min="0" step="0.01" className={inp} value={custom.amount} onChange={(e) => setCustom({ ...custom, amount: e.target.value })} />
+              <button className={`${btn} bg-emerald-600 flex items-center justify-center gap-1`} onClick={async () => {
+                if (!custom.label.trim()) return alert('Isi nama yuran.');
+                if (await run(() => supabase.from('branch_fees').insert({ branch_id: bid, fee_code: `x_${Date.now().toString(36)}`, label: custom.label.trim(), amount: Number(custom.amount), active: true }))) setCustom({ label: '', amount: 20 });
+              }}><Plus className="w-3.5 h-3.5" />Tambah</button>
+            </div>
+          </>
+        )}
       </div>
+      {isAdmin && (
+        <div className={card}>
+          <h2 className="text-sm font-bold text-amber-400">Yuran Default (semua cawangan)</h2>
+          {allFeeTypes.map((f) => <FeeRow key={f.code + f.amount + f.label + f.active} fee={f} run={run} />)}
+          <div className="grid sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800 text-xs">
+            <input className={inp} placeholder="Kod (cth: seragam)" value={nf.code} onChange={(e) => setNf({ ...nf, code: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })} />
+            <input className={inp} placeholder="Nama yuran" value={nf.label} onChange={(e) => setNf({ ...nf, label: e.target.value })} />
+            <input type="number" min="0" step="0.01" className={inp} value={nf.amount} onChange={(e) => setNf({ ...nf, amount: e.target.value })} />
+            <button className={`${btn} bg-emerald-600 flex items-center justify-center gap-1`} onClick={async () => {
+              if (!nf.code || !nf.label.trim()) return alert('Isi kod & nama.');
+              if (await run(() => supabase.from('fee_types').insert({ code: nf.code, label: nf.label.trim(), amount: Number(nf.amount), active: true, sort: allFeeTypes.length + 1 }))) setNf({ code: '', label: '', amount: 20 });
+            }}><Plus className="w-3.5 h-3.5" />Tambah</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function ProductRow({ p, run, upload, canEdit, branchName }) {
+  const [f, setF] = useState(p);
+  const dirty = JSON.stringify(f) !== JSON.stringify(p);
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 grid sm:grid-cols-7 gap-2 items-center text-xs">
+      <input disabled={!canEdit} className={`${inp} sm:col-span-2`} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+      <input disabled={!canEdit} type="number" min="0" step="0.01" className={inp} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} />
+      <span className="text-[11px] text-slate-400">{p.branch_id ? branchName[p.branch_id] : 'Semua cawangan'}</span>
+      <label className="flex items-center gap-1.5"><input disabled={!canEdit} type="checkbox" checked={!!f.in_stock} onChange={(e) => setF({ ...f, in_stock: e.target.checked })} /> Ada Stok</label>
+      <label className={`${btn} bg-slate-800 text-center ${canEdit ? 'cursor-pointer' : 'opacity-40'}`}>
+        {f.image_url ? 'Gambar ✓' : 'Gambar'}
+        <input disabled={!canEdit} type="file" accept="image/*" className="hidden" onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (file) { const url = await upload(file, 'products'); if (url) setF({ ...f, image_url: url }); }
+        }} />
+      </label>
+      {canEdit && (
+        <div className="flex gap-2 justify-end">
+          <button disabled={!dirty} onClick={() => run(() => supabase.from('products').update({ name: f.name.trim(), price: Number(f.price), in_stock: f.in_stock, image_url: f.image_url }).eq('id', p.id))} className={`${btn} bg-emerald-600 disabled:opacity-40`}>Simpan</button>
+          <button onClick={() => confirm(`Padam produk "${p.name}"?`) && run(() => supabase.from('products').delete().eq('id', p.id))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+function CatalogSection({ products, feeTypes, allFeeTypes, branchFees, branches, branchName, isAdmin, myBranch, run, upload }) {
+  const [np, setNp] = useState({ name: '', price: 45, category: 'Merchandise', image_url: '', branch_id: isAdmin ? null : myBranch });
+  const scope = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
+  return (
+    <div className="space-y-4">
+      <FeesSection feeTypes={feeTypes} allFeeTypes={allFeeTypes} branchFees={branchFees} branches={branches} isAdmin={isAdmin} myBranch={myBranch} run={run} />
       <div className={card}>
         <h2 className="text-sm font-bold text-amber-400">Produk / Merchandise</h2>
-        {products.map((p) => <ProductRow key={p.id + p.price + p.name + p.in_stock + p.image_url} p={p} run={run} upload={upload} />)}
-        <div className="grid sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800 text-xs">
+        {products.map((p) => <ProductRow key={p.id + p.price + p.name + p.in_stock + p.image_url} p={p} run={run} upload={upload} branchName={branchName} canEdit={isAdmin || (p.branch_id && p.branch_id === myBranch)} />)}
+        <div className="grid sm:grid-cols-5 gap-2 pt-2 border-t border-slate-800 text-xs">
           <input className={inp} placeholder="Nama produk" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} />
           <input type="number" min="0" step="0.01" className={inp} value={np.price} onChange={(e) => setNp({ ...np, price: e.target.value })} />
+          <BranchSelect value={np.branch_id} onChange={(v) => setNp({ ...np, branch_id: v })} branches={scope} isAdmin={isAdmin} />
           <label className={`${inp} cursor-pointer flex items-center gap-2`}>
             <Upload className="w-4 h-4 text-amber-400" />{np.image_url ? 'Gambar ✓' : 'Gambar'}
             <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
@@ -347,7 +483,7 @@ function CatalogSection({ products, feeTypes, run, upload }) {
           </label>
           <button className={`${btn} bg-emerald-600 flex items-center justify-center gap-1`} onClick={async () => {
             if (!np.name.trim() || Number(np.price) <= 0) return alert('Isi nama & harga.');
-            if (await run(() => supabase.from('products').insert({ name: np.name.trim(), price: Number(np.price), category: np.category, image_url: np.image_url || null }))) setNp({ name: '', price: 45, category: 'Merchandise', image_url: '' });
+            if (await run(() => supabase.from('products').insert({ name: np.name.trim(), price: Number(np.price), category: np.category, image_url: np.image_url || null, branch_id: isAdmin ? np.branch_id : myBranch }))) setNp({ ...np, name: '', price: 45, image_url: '' });
           }}><Plus className="w-3.5 h-3.5" />Tambah</button>
         </div>
       </div>
@@ -356,98 +492,115 @@ function CatalogSection({ products, feeTypes, run, upload }) {
 }
 
 /* ---------------- BRANCHES ---------------- */
-function BranchRow({ b, run }) {
+function BranchRow({ b, run, isAdmin }) {
   const [f, setF] = useState(b);
   const dirty = JSON.stringify(f) !== JSON.stringify(b);
   return (
     <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 grid sm:grid-cols-5 gap-2 items-center text-xs">
-      <input className={inp} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-      <input className={inp} value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })} />
-      <input className={inp} placeholder="Alamat" value={f.address || ''} onChange={(e) => setF({ ...f, address: e.target.value })} />
-      <input className={inp} placeholder="Jadual" value={f.training_schedule || ''} onChange={(e) => setF({ ...f, training_schedule: e.target.value })} />
+      <input disabled={!isAdmin} className={inp} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+      <input disabled={!isAdmin} className={inp} value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })} />
+      <input className={inp} placeholder="Alamat gelanggang" value={f.address || ''} onChange={(e) => setF({ ...f, address: e.target.value })} />
+      <input className={inp} placeholder="Jadual latihan" value={f.training_schedule || ''} onChange={(e) => setF({ ...f, training_schedule: e.target.value })} />
       <div className="flex gap-2 justify-end">
-        <button disabled={!dirty} onClick={() => run(() => supabase.from('branches').update({ name: f.name.trim(), state: f.state.trim(), address: f.address, training_schedule: f.training_schedule }).eq('id', b.id))}
-          className={`${btn} bg-emerald-600 disabled:opacity-40`}>Simpan</button>
-        <button onClick={() => confirm(`Padam cawangan ${b.name}?`) && run(() => supabase.from('branches').delete().eq('id', b.id))}
-          className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
+        <button disabled={!dirty} onClick={() => run(() => supabase.from('branches').update({ name: f.name.trim(), state: f.state.trim(), address: f.address, training_schedule: f.training_schedule }).eq('id', b.id))} className={`${btn} bg-emerald-600 disabled:opacity-40`}>Simpan</button>
+        {isAdmin && <button onClick={() => confirm(`Padam cawangan ${b.name}?`) && run(() => supabase.from('branches').delete().eq('id', b.id))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>}
       </div>
     </div>
   );
 }
-function BranchesSection({ branches, run }) {
+function BranchesSection({ branches, run, isAdmin, myBranch }) {
   const [nb, setNb] = useState({ name: '', state: '', address: '', training_schedule: '' });
+  const list = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
   return (
     <div className={card}>
-      <h2 className="text-sm font-bold text-amber-400">Cawangan</h2>
-      {branches.map((b) => <BranchRow key={b.id + b.name + b.state} b={b} run={run} />)}
-      <div className="grid sm:grid-cols-5 gap-2 pt-2 border-t border-slate-800 text-xs">
-        <input className={inp} placeholder="Nama" value={nb.name} onChange={(e) => setNb({ ...nb, name: e.target.value })} />
-        <input className={inp} placeholder="Negeri" value={nb.state} onChange={(e) => setNb({ ...nb, state: e.target.value })} />
-        <input className={inp} placeholder="Alamat" value={nb.address} onChange={(e) => setNb({ ...nb, address: e.target.value })} />
-        <input className={inp} placeholder="Jadual" value={nb.training_schedule} onChange={(e) => setNb({ ...nb, training_schedule: e.target.value })} />
-        <button className={`${btn} bg-emerald-600 flex items-center justify-center gap-1`} onClick={async () => {
-          if (!nb.name.trim() || !nb.state.trim()) return alert('Isi nama & negeri.');
-          if (await run(() => supabase.from('branches').insert({ ...nb, name: nb.name.trim(), state: nb.state.trim() }))) setNb({ name: '', state: '', address: '', training_schedule: '' });
-        }}><Plus className="w-3.5 h-3.5" />Tambah</button>
-      </div>
+      <h2 className="text-sm font-bold text-amber-400">Cawangan & Gelanggang</h2>
+      {list.map((b) => <BranchRow key={b.id + b.name + b.state + b.address + b.training_schedule} b={b} run={run} isAdmin={isAdmin} />)}
+      {isAdmin && (
+        <div className="grid sm:grid-cols-5 gap-2 pt-2 border-t border-slate-800 text-xs">
+          <input className={inp} placeholder="Nama" value={nb.name} onChange={(e) => setNb({ ...nb, name: e.target.value })} />
+          <input className={inp} placeholder="Negeri" value={nb.state} onChange={(e) => setNb({ ...nb, state: e.target.value })} />
+          <input className={inp} placeholder="Alamat" value={nb.address} onChange={(e) => setNb({ ...nb, address: e.target.value })} />
+          <input className={inp} placeholder="Jadual" value={nb.training_schedule} onChange={(e) => setNb({ ...nb, training_schedule: e.target.value })} />
+          <button className={`${btn} bg-emerald-600 flex items-center justify-center gap-1`} onClick={async () => {
+            if (!nb.name.trim() || !nb.state.trim()) return alert('Isi nama & negeri.');
+            if (await run(() => supabase.from('branches').insert({ ...nb, name: nb.name.trim(), state: nb.state.trim() }))) setNb({ name: '', state: '', address: '', training_schedule: '' });
+          }}><Plus className="w-3.5 h-3.5" />Tambah</button>
+        </div>
+      )}
     </div>
   );
 }
 
-/* ---------------- PAYMENTS ---------------- */
-export function PaymentsSection({ payments, profiles, run, isAdmin }) {
-  const [filter, setFilter] = useState('all');
-  const nameOf = useMemo(() => Object.fromEntries(profiles.map((p) => [p.id, p.full_name])), [profiles]);
-  const list = payments.filter((p) => filter === 'all' || p.status === filter);
-  const total = payments.filter((p) => p.status === 'paid').reduce((s, p) => s + Number(p.total_amount), 0);
-  const setStatus = (id, status) => run(() => supabase.rpc('admin_set_payment_status', { p_id: id, p_status: status }));
+/* ---------------- SETTINGS (admin): payment info, about, org chart, rules ---------------- */
+function PaymentSettings({ info, run, upload }) {
+  const [f, setF] = useState({ bank_name: '', account_no: '', account_name: '', bank_logo_url: null, qr_url: null, fpx_enabled: false, ...info });
+  const img = (key, label, folder) => (
+    <div className="space-y-1">
+      <p className="text-[11px] text-slate-400">{label}</p>
+      {f[key] && <img src={f[key]} alt={label} className="h-24 w-auto rounded bg-white p-1 object-contain" />}
+      <div className="flex gap-2">
+        <label className={`${btn} bg-slate-800 cursor-pointer flex items-center gap-1.5`}>
+          <Upload className="w-3.5 h-3.5 text-amber-400" /> {f[key] ? 'Tukar' : 'Muat Naik'}
+          <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (file) { const url = await upload(file, folder); if (url) setF({ ...f, [key]: url }); }
+          }} />
+        </label>
+        {f[key] && <button onClick={() => setF({ ...f, [key]: null })} className={`${btn} bg-slate-800 text-red-300`}>Buang</button>}
+      </div>
+    </div>
+  );
   return (
     <div className={card}>
-      <div className="flex flex-wrap justify-between items-center gap-2">
-        <h2 className="text-sm font-bold text-amber-400">Pengurusan Bayaran</h2>
-        <p className="text-xs text-slate-300">Jumlah berjaya: <b className="text-emerald-400">RM{total.toFixed(2)}</b></p>
+      <h2 className="text-sm font-bold text-amber-400">Tetapan Pembayaran Kelab</h2>
+      <div className="grid sm:grid-cols-3 gap-2">
+        <input className={inp} placeholder="Nama bank" value={f.bank_name} onChange={(e) => setF({ ...f, bank_name: e.target.value })} />
+        <input className={inp} placeholder="No. akaun" value={f.account_no} onChange={(e) => setF({ ...f, account_no: e.target.value.replace(/[^0-9]/g, '') })} />
+        <input className={`${inp} uppercase`} placeholder="Nama akaun" value={f.account_name} onChange={(e) => setF({ ...f, account_name: e.target.value })} />
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        {['all', 'pending', 'pending_verification', 'paid', 'failed', 'cancelled'].map((s) => (
-          <button key={s} onClick={() => setFilter(s)} className={`${btn} ${filter === s ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>
-            {s === 'all' ? 'Semua' : STATUS_LABEL[s]}
-          </button>
-        ))}
+      <div className="grid sm:grid-cols-2 gap-4">
+        {img('bank_logo_url', 'Logo bank (dipaparkan di sebelah no. akaun)', 'bank')}
+        {img('qr_url', 'Kod QR DuitNow (dipaparkan semasa pembayaran)', 'qr')}
       </div>
-      <div className="space-y-2">
-        {list.length === 0 && <p className="text-xs text-slate-400">Tiada rekod.</p>}
-        {list.map((p) => (
-          <div key={p.id} className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs space-y-2">
-            <div className="flex flex-wrap justify-between gap-2">
-              <div>
-                <p className="font-bold text-white">{p.reference_no} <span className="text-slate-400 font-normal">• {p.payment_method === 'fpx' ? 'FPX (Herepay)' : 'Bank Transfer'}</span></p>
-                <p className="text-slate-400">{nameOf[p.parent_id] || p.parent_id} • {new Date(p.created_at).toLocaleString('ms-MY')}</p>
-                {p.bank_transfer_ref && <p className="text-slate-400">Ref Bank: {p.bank_transfer_ref}</p>}
-                {p.gateway_payment_code && <p className="text-slate-500 font-mono text-[10px]">Herepay: {p.gateway_payment_code}</p>}
-              </div>
-              <div className="text-right space-y-1">
-                <p className="text-base font-bold text-amber-400">RM{Number(p.total_amount).toFixed(2)}</p>
-                <StatusBadge status={p.status} />
-              </div>
-            </div>
-            <ul className="text-[11px] text-slate-400 list-disc pl-4">
-              {(p.items || []).map((i, idx) => <li key={idx}>{i.label} — RM{Number(i.amount).toFixed(2)}</li>)}
-            </ul>
-            {p.status !== 'paid' && (
-              <div className="flex flex-wrap gap-2">
-                {(isAdmin || (p.payment_method === 'bank_transfer' && p.status === 'pending_verification')) && (
-                  <button onClick={() => confirm(`Sahkan RM${Number(p.total_amount).toFixed(2)} telah diterima?`) && setStatus(p.id, 'paid')} className={`${btn} bg-emerald-600`}>Sahkan Diterima</button>
-                )}
-                {isAdmin && p.status !== 'failed' && <button onClick={() => setStatus(p.id, 'failed')} className={`${btn} bg-red-900 text-red-200`}>Tanda Gagal</button>}
-                {isAdmin && p.status !== 'cancelled' && <button onClick={() => setStatus(p.id, 'cancelled')} className={`${btn} bg-slate-800 text-slate-200`}>Batalkan</button>}
-                {isAdmin && (
-                  <button onClick={() => confirm('Padam rekod bayaran ini?') && run(() => supabase.rpc('admin_delete_payment', { p_id: p.id }))}
-                    className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
-                )}
-              </div>
-            )}
+      <label className="flex items-center gap-2 text-xs text-slate-300">
+        <input type="checkbox" checked={!!f.fpx_enabled} onChange={(e) => setF({ ...f, fpx_enabled: e.target.checked })} />
+        Aktifkan FPX Online (hidupkan hanya selepas Herepay siap diuji)
+      </label>
+      <button className={`${btn} bg-emerald-600`} onClick={() => {
+        if (!f.account_no || !f.account_name.trim()) return alert('Isi no. akaun & nama akaun.');
+        run(() => supabase.from('academy_info').upsert({ key: 'payment', value: { ...f, account_name: f.account_name.trim().toUpperCase() }, updated_at: new Date().toISOString() }), 'Tetapan pembayaran disimpan.');
+      }}>Simpan Tetapan</button>
+    </div>
+  );
+}
+function AcademyEditor({ academyInfo, run }) {
+  const [org, setOrg] = useState(academyInfo.org_chart || []);
+  const [rules, setRules] = useState({ bengkung: '', syarat_am: '', syarat_khas: '', ...(academyInfo.rules || {}) });
+  const save = (key, value) => run(() => supabase.from('academy_info').upsert({ key, value, updated_at: new Date().toISOString() }), 'Disimpan.');
+  return (
+    <div className="space-y-4">
+      <div className={card}>
+        <h2 className="text-sm font-bold text-amber-400">Carta Organisasi</h2>
+        {org.map((o, i) => (
+          <div key={i} className="grid sm:grid-cols-4 gap-2">
+            <input className={inp} placeholder="Jawatan" value={o.role || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, role: e.target.value } : x))} />
+            <input className={inp} placeholder="Nama" value={o.name || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, name: e.target.value } : x))} />
+            <input className={inp} placeholder="Cawangan" value={o.branch || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, branch: e.target.value } : x))} />
+            <button onClick={() => setOrg(org.filter((_, k) => k !== i))} className="p-1.5 rounded-lg bg-red-950 text-red-300 justify-self-start"><Trash2 className="w-4 h-4" /></button>
           </div>
         ))}
+        <div className="flex gap-2">
+          <button onClick={() => setOrg([...org, { role: '', name: '', branch: '' }])} className={`${btn} bg-slate-800 flex items-center gap-1`}><Plus className="w-3.5 h-3.5" />Tambah</button>
+          <button onClick={() => save('org_chart', org.filter((o) => o.name?.trim()))} className={`${btn} bg-emerald-600`}>Simpan Carta</button>
+        </div>
+      </div>
+      <div className={card}>
+        <h2 className="text-sm font-bold text-amber-400">Bengkung & Syarat Penyertaan</h2>
+        <textarea rows={2} className={inp} placeholder="Tahap bengkung" value={rules.bengkung} onChange={(e) => setRules({ ...rules, bengkung: e.target.value })} />
+        <textarea rows={2} className={inp} placeholder="Syarat am" value={rules.syarat_am} onChange={(e) => setRules({ ...rules, syarat_am: e.target.value })} />
+        <textarea rows={2} className={inp} placeholder="Syarat khas" value={rules.syarat_khas} onChange={(e) => setRules({ ...rules, syarat_khas: e.target.value })} />
+        <button onClick={() => save('rules', rules)} className={`${btn} bg-emerald-600`}>Simpan Syarat</button>
+        <p className="text-[11px] text-slate-500">Tajuk, tagline, visi & misi: edit di tab "Tentang Kami".</p>
       </div>
     </div>
   );
@@ -455,27 +608,34 @@ export function PaymentsSection({ payments, profiles, run, isAdmin }) {
 
 /* ---------------- SHELL ---------------- */
 export default function AdminPanel({
-  me, isAdmin, profiles, branches, students, tournaments, products, feeTypes, payments,
-  branchName, reload, upload,
+  me, isAdmin, myBranch, profiles, branches, students, tournaments, products, feeTypes, allFeeTypes, branchFees,
+  payments, refunds, academyInfo, branchName, reload, upload,
 }) {
   const { run } = useRun(reload);
-  const sections = isAdmin
-    ? [['users', 'Pengguna'], ['links', 'Pesilat ↔ Akaun'], ['payments', 'Bayaran'], ['events', 'Kejohanan'], ['catalog', 'Yuran & Produk'], ['branches', 'Cawangan']]
-    : [['links', 'Pesilat ↔ Akaun'], ['payments', 'Bayaran']];
-  const [sec, setSec] = useState(sections[0][0]);
+  const scopedBranches = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
+  const sections = [
+    ['users', 'Pengguna'], ['links', 'Pesilat ↔ Akaun'], ['payments', 'Bayaran'], ['events', 'Kejohanan'],
+    ['catalog', 'Yuran & Produk'], ['branches', isAdmin ? 'Cawangan' : 'Cawangan Saya'],
+    ...(isAdmin ? [['settings', 'Tetapan Bayaran'], ['academy', 'Maklumat Akademi'], ['payslips', 'Slip Gaji']] : []),
+  ];
+  const [sec, setSec] = useState('users');
   return (
     <div className="space-y-4">
+      {!isAdmin && <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2">Akses jurulatih: terhad kepada cawangan {branchName[myBranch] || '(belum ditetapkan — hubungi admin)'}.</p>}
       <div className="flex gap-2 overflow-x-auto">
         {sections.map(([id, label]) => (
           <button key={id} onClick={() => setSec(id)} className={`${btn} whitespace-nowrap ${sec === id ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>{label}</button>
         ))}
       </div>
-      {sec === 'users' && isAdmin && <UsersSection profiles={profiles} me={me} branches={branches} branchName={branchName} run={run} />}
+      {sec === 'users' && <UsersSection profiles={profiles} me={me} isAdmin={isAdmin} branches={branches} branchName={branchName} run={run} />}
       {sec === 'links' && <LinksSection students={students} profiles={profiles} run={run} />}
-      {sec === 'payments' && <PaymentsSection payments={payments} profiles={profiles} run={run} isAdmin={isAdmin} />}
-      {sec === 'events' && isAdmin && <TournamentsSection tournaments={tournaments} run={run} me={me} upload={upload} />}
-      {sec === 'catalog' && isAdmin && <CatalogSection products={products} feeTypes={feeTypes} run={run} upload={upload} />}
-      {sec === 'branches' && isAdmin && <BranchesSection branches={branches} run={run} />}
+      {sec === 'payments' && <PaymentsSection payments={payments} refunds={refunds} profiles={profiles} run={run} />}
+      {sec === 'events' && <TournamentsSection tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
+      {sec === 'catalog' && <CatalogSection products={products} feeTypes={feeTypes} allFeeTypes={allFeeTypes} branchFees={branchFees} branches={branches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}
+      {sec === 'branches' && <BranchesSection branches={branches} run={run} isAdmin={isAdmin} myBranch={myBranch} />}
+      {sec === 'settings' && isAdmin && <PaymentSettings info={academyInfo.payment || {}} run={run} upload={upload} />}
+      {sec === 'academy' && isAdmin && <AcademyEditor academyInfo={academyInfo} run={run} />}
+      {sec === 'payslips' && isAdmin && <PayslipAdmin me={me} profiles={profiles} branches={branches} clubName={academyInfo.about?.title} />}
     </div>
   );
 }

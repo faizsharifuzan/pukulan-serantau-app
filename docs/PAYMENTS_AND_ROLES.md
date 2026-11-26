@@ -17,3 +17,11 @@ Roles can only be changed by an admin (enforced by DB trigger). Coach sign-ups a
 
 ## Supabase secrets (Edge Functions)
 `HEREPAY_SECRET_KEY`, `HEREPAY_PRIVATE_KEY`, `HEREPAY_BASE_URL` (UAT: `https://uat.herepay.org`, live: `https://app.herepay.org`), `FRONTEND_URL` (https site URL).
+
+## v4: Cawangan, Refund, Resit, Slip Gaji
+- Bayaran: FPX (aktif bila `academy_info.payment.fpx_enabled`), Direct Transfer, DuitNow QR. Transfer/QR wajib muat naik resit (PDF/JPG/PNG ≤5MB) ke bucket `receipts`.
+- Admin: Pentadbiran → Tetapan Bayaran (no akaun, logo bank, QR, FPX on/off).
+- Jurulatih: akses penuh seperti admin tetapi terhad kepada cawangan sendiri (dikuatkuasakan RLS `can_manage_branch`).
+- Yuran per cawangan: `branch_fees` (override `fee_types`).
+- Refund: admin & jurulatih cawangan; rekod sahaja (wang dipulangkan manual).
+- Slip gaji: admin cipta (Pentadbiran → Slip Gaji); jurulatih lihat/cetak slip sendiri.
