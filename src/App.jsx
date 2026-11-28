@@ -525,7 +525,7 @@ export default function App() {
                 {regRole === 'parent' && (
                   <label className="flex items-start gap-2 text-[11px] text-slate-300 bg-slate-800/60 border border-slate-700 rounded-lg p-2">
                     <input type="checkbox" className="mt-0.5" checked={wantMember} onChange={(e) => setWantMember(e.target.checked)} />
-                    <span>Saya juga mahu menjadi <b>ahli</b> (dapat No. Ahli, boleh bayar yuran, sertai kejohanan & beli merchandise). Perlu kelulusan Admin/Jurulatih.</span>
+                    <span>Saya juga mahu menjadi <b>ahli</b> rasmi kelab (dapat No. Ahli). Perlu kelulusan Admin/Jurulatih. Tanpa keahlian, anda tetap boleh membayar & membeli.</span>
                   </label>
                 )}
                 {regRole === 'student' && <p className="text-[10px] text-emerald-300">Pesilat akan dimohon sebagai ahli secara automatik. Menunggu kelulusan Admin/Jurulatih.</p>}
