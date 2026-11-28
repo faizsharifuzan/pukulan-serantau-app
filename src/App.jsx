@@ -414,6 +414,7 @@ export default function App() {
 
   const hqId = branches.find((b) => b.is_hq)?.id || null;
   const payeeOf = (c) => {
+    if (c.type === 'member_fee') return profile?.branch_id || hqId;
     if (c.type === 'fee') return students.find((x) => x.id === c.student_id)?.branch_id || hqId;
     if (c.type === 'tournament') return tournaments.find((x) => x.id === c.tournament_id)?.branch_id || hqId;
     return products.find((x) => x.id === c.product_id)?.branch_id || profile?.branch_id || hqId;
@@ -907,6 +908,18 @@ export default function App() {
         {/* TAB 4: SHOP & FEES */}
         {tab === 'shop' && (
           <div className="space-y-6">
+            {profile?.role === 'coach' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                <h2 className="text-sm font-bold text-amber-400">Yuran Jurulatih</h2>
+                {profile.fee_exempt && <p className="text-[11px] text-emerald-300">Anda dikecualikan daripada yuran.</p>}
+                {feesForStudent(profile).map((fee) => (
+                  <div key={fee.code} className="flex items-center justify-between gap-2 text-xs">
+                    <span>{fee.label} <b className="text-emerald-400">{rm(fee.amount)}</b></span>
+                    <button onClick={() => addToCart({ type: 'member_fee', fee_code: fee.code, label: `${fee.label} (Jurulatih)`, amount: fee.amount })} className="px-2 py-1 rounded bg-emerald-900/70 hover:bg-emerald-700 text-[10px]">+ Troli</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <h2 className="text-sm font-bold text-amber-400 mb-3">Yuran Rasmi Akademi (Multi-Anak)</h2>
               <div className="grid sm:grid-cols-3 gap-3">

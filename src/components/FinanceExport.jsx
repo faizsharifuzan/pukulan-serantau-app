@@ -33,7 +33,7 @@ export function FinanceExport({ payments, profiles, students, branches, allFeeTy
   ], [fees]);
   const [sel, setSel] = useState(() => Object.fromEntries(typeKeys.map((t) => [t.key, true])));
   const isOn = (k) => sel[k] !== false;
-  const keyOf = (it) => (it.type === 'fee' ? `fee:${it.fee_code}` : it.type);
+  const keyOf = (it) => (it.type === 'fee' || it.type === 'member_fee' ? `fee:${it.fee_code}` : it.type);
   const labelOf = (k) => typeKeys.find((t) => t.key === k)?.label || k;
 
   const nameOf = useMemo(() => Object.fromEntries(profiles.map((p) => [p.id, p])), [profiles]);
@@ -157,6 +157,7 @@ export function FeeExemptions({ students, profiles, branches, allFeeTypes, branc
   const [q, setQ] = useState('');
   const [bf, setBf] = useState('');
   const [onlyEx, setOnlyEx] = useState(false);
+  const [kind, setKind] = useState('students');
   const fees = useMemo(() => feeCatalog(allFeeTypes, branchFees), [allFeeTypes, branchFees]);
   const codesFor = (s) => {
     const c = allFeeTypes.map((f) => f.code);
@@ -164,18 +165,25 @@ export function FeeExemptions({ students, profiles, branches, allFeeTypes, branc
     return c;
   };
   const memberNo = (s) => profiles.find((p) => p.id === s.student_user_id)?.member_no || profiles.find((p) => p.id === s.parent_id)?.member_no || '';
-  const list = students.filter((s) => {
+  const isCoach = kind === 'coaches';
+  const source = isCoach ? profiles.filter((p) => p.role === 'coach').map((p) => ({ ...p, short_name: p.full_name })) : students;
+  const list = source.filter((s) => {
     const t = q.trim().toLowerCase();
     return (!bf || s.branch_id === bf) && (!onlyEx || s.fee_exempt || s.fee_only)
-      && (!t || `${s.id} ${s.full_name} ${s.short_name} ${memberNo(s)}`.toLowerCase().includes(t));
+      && (!t || `${s.id} ${s.full_name} ${s.short_name} ${isCoach ? s.member_no || '' : memberNo(s)}`.toLowerCase().includes(t));
   }).slice(0, 60);
-  const save = (s, patch) => run(() => supabase.from('students').update(patch).eq('id', s.id));
+  const save = (s, patch) => run(() => supabase.from(isCoach ? 'profiles' : 'students').update(patch).eq('id', s.id));
   return (
     <div className={card}>
       <h2 className="text-sm font-bold text-amber-400">Pengecualian Yuran</h2>
       <p className="text-[11px] text-slate-400">Pesilat yang dikecualikan atau dihadkan jenis yuran masih ada ID ahli dan masih boleh membeli merchandise dan menyertai kejohanan seperti biasa.</p>
+      <div className="flex gap-2">
+        {[['students', 'Pesilat'], ['coaches', 'Jurulatih']].map(([k, l]) => (
+          <button key={k} onClick={() => setKind(k)} className={`${btn} ${kind === k ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>{l}</button>
+        ))}
+      </div>
       <div className="grid sm:grid-cols-3 gap-2">
-        <input className={inp} placeholder="Cari nama / ID pesilat / No. Ahli" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className={inp} placeholder="Cari nama / ID / No. Ahli / No. Ahli" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className={inp} value={bf} onChange={(e) => setBf(e.target.value)}>
           <option value="">Semua Cawangan</option>
           {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -186,11 +194,12 @@ export function FeeExemptions({ students, profiles, branches, allFeeTypes, branc
         {list.length === 0 && <p className="text-xs text-slate-400">Tiada pesilat.</p>}
         {list.map((s) => {
           const codes = codesFor(s);
+          if (!codes.length) return null;
           const active = s.fee_only || codes;
           return (
             <div key={s.id} className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-2 text-xs">
               <div className="flex flex-wrap justify-between gap-2">
-                <p className="font-semibold text-white">{s.full_name || s.short_name} <span className="font-normal text-slate-500">• {s.id} • {branchName[s.branch_id] || '-'}{memberNo(s) ? ` • ${memberNo(s)}` : ''}</span></p>
+                <p className="font-semibold text-white">{s.full_name || s.short_name} <span className="font-normal text-slate-500">• {isCoach ? 'Jurulatih' : s.id} • {branchName[s.branch_id] || '-'}{(isCoach ? s.member_no : memberNo(s)) ? ` • ${isCoach ? s.member_no : memberNo(s)}` : ''}</span></p>
                 <label className="flex items-center gap-1.5 text-amber-300">
                   <input type="checkbox" checked={!!s.fee_exempt} onChange={(e) => save(s, { fee_exempt: e.target.checked })} />Dikecualikan semua yuran
                 </label>
