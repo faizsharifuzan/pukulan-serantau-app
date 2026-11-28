@@ -16,8 +16,8 @@ const STRIPE = ['Stripe 1 (Pemula)', 'Stripe 2 (Pertengahan)', 'Stripe 3 (Mahir)
 
 const LEVELS = [
   { no: 'Tahap 1', name: 'Bengkung Putih', base: 'bg-white', border: 'border-slate-300', stripeColor: 'bg-emerald-700', stripes: true },
-  { no: 'Tahap 2', name: 'Hitam Belang Putih', base: 'bg-slate-950', line: 'bg-white', border: 'border-slate-600', stripes: true, note: 'Kategori Remaja (13-17 tahun)' },
-  { no: 'Tahap 3', name: 'Hitam Penuh', base: 'bg-black', border: 'border-amber-500', stripes: true, note: 'Kategori Remaja (13-17 tahun)' },
+  { no: 'Tahap 2', name: 'Hitam Belang Putih', base: 'bg-slate-950', line: 'bg-white', border: 'border-slate-600', stripes: true },
+  { no: 'Tahap 3', name: 'Hitam Penuh', base: 'bg-black', border: 'border-amber-500', stripes: true },
 ];
 
 const TEACHERS = [
@@ -42,7 +42,7 @@ function Row({ item, children }) {
 export default function BengkungGuide() {
   return (
     <div className="space-y-3">
-      <p className="text-[11px] text-slate-400">Setiap tahap mempunyai 3 peringkat mengikut bilangan stripe di hujung tali.</p>
+      <p className="text-[11px] text-slate-400">Tahap 1 hingga 3 terbuka kepada semua peringkat umur. Setiap tahap mempunyai 3 peringkat mengikut bilangan stripe di hujung tali.</p>
       <div className="grid sm:grid-cols-3 gap-3">
         {LEVELS.map((l) => (
           <Row key={l.no} item={l}>
