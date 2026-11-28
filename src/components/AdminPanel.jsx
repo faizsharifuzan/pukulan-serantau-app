@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { StatusBadge, STATUS_LABEL, METHOD_LABEL, RefundLines, openReceipt, rm } from './PaymentUI';
 import { PayslipAdmin } from './Payslips';
 import { Field, ImageUploader, imagesOf } from './Media';
+import { FinanceExport, FeeExemptions } from './FinanceExport';
 
 const inp = 'px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs w-full';
 const btn = 'px-3 py-1.5 rounded-lg text-xs font-semibold';
@@ -328,7 +329,7 @@ function TournamentForm({ init, onSave, onCancel, upload, label, branches, isAdm
     </div>
   );
 }
-function Roster({ t, students }) {
+function Roster({ t, students, canFinance }) {
   const [rows, setRows] = useState(null);
   const load = () => supabase.from('tournament_rsvps').select('*').eq('tournament_id', t.id).then(({ data }) => setRows(data || []));
   useEffect(() => { load(); }, []); // eslint-disable-line
@@ -339,7 +340,7 @@ function Roster({ t, students }) {
     <div className="bg-slate-900 rounded-lg p-2 space-y-1.5 text-[11px]">
       {(rows || []).map((r) => (
         <div key={r.id} className="flex flex-wrap items-center justify-between gap-2">
-          <span>{nm(r.student_id)} • {r.rsvp_status} • <b className={r.payment_status === 'paid' ? 'text-emerald-400' : 'text-amber-300'}>{r.payment_status}</b></span>
+          <span>{nm(r.student_id)} • {r.rsvp_status} • {canFinance && <b className={r.payment_status === 'paid' ? 'text-emerald-400' : 'text-amber-300'}>{r.payment_status}</b>}</span>
           <span className="flex gap-1.5">
             <button onClick={async () => { await supabase.from('tournament_rsvps').update({ coach_override: !r.coach_override }).eq('id', r.id); load(); }} className={`${btn} ${r.coach_override ? 'bg-amber-500 text-slate-950' : 'bg-slate-800'}`}>Kebenaran khas {r.coach_override ? '✓' : ''}</button>
             <button onClick={async () => { if (confirm('Buang peserta?')) { await supabase.from('tournament_rsvps').delete().eq('id', r.id); load(); } }} className="p-1 rounded bg-red-950 text-red-300"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -357,7 +358,7 @@ function Roster({ t, students }) {
     </div>
   );
 }
-function TournamentsSection({ tournaments, run, me, upload, branches, branchName, isAdmin, myBranch, students }) {
+function TournamentsSection({ canFinance, tournaments, run, me, upload, branches, branchName, isAdmin, myBranch, students }) {
   const [editId, setEditId] = useState(null);
   const [rosterId, setRosterId] = useState(null);
   const blank = { title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: '', images: [], description: '', branch_id: null };
@@ -394,7 +395,7 @@ function TournamentsSection({ tournaments, run, me, upload, branches, branchName
                 )}
               </div>
             )}
-            {rosterId === t.id && <Roster t={t} students={students} />}
+            {rosterId === t.id && <Roster t={t} students={students} canFinance={canFinance} />}
           </div>
         ))}
       </div>
@@ -697,9 +698,11 @@ export default function AdminPanel({
   payments, refunds, academyInfo, branchName, reload, upload, branchPay = {}, isBranchAdmin = false,
 }) {
   const { run } = useRun(reload);
+  const canFinance = isAdmin || isBranchAdmin;
   const scopedBranches = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
   const sections = [
-    ['users', 'Pengguna'], ['links', 'Pesilat ↔ Akaun'], ['payments', 'Bayaran'], ['events', 'Kejohanan'],
+    ['users', 'Pengguna'], ['links', 'Pesilat ↔ Akaun'],
+    ...(canFinance ? [['payments', 'Bayaran'], ['export', 'Eksport Excel']] : []), ...(isAdmin ? [['exempt', 'Pengecualian Yuran']] : []), ['events', 'Kejohanan'],
     ['catalog', 'Yuran & Produk'], ['branches', isAdmin ? 'Cawangan' : 'Cawangan Saya'],
     ['settings', 'Tetapan Bayaran'],
     ...(isAdmin ? [['academy', 'Maklumat Akademi'], ['payslips', 'Slip Gaji']] : isBranchAdmin ? [['payslips', 'Slip Gaji']] : []),
@@ -715,8 +718,10 @@ export default function AdminPanel({
       </div>
       {sec === 'users' && <UsersSection profiles={profiles} me={me} isAdmin={isAdmin} isBA={isBranchAdmin} branches={branches} branchName={branchName} run={run} />}
       {sec === 'links' && <LinksSection students={students} profiles={profiles} run={run} />}
-      {sec === 'payments' && <PaymentsSection payments={payments} refunds={refunds} profiles={profiles} run={run} />}
-      {sec === 'events' && <TournamentsSection students={students} tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
+      {sec === 'export' && canFinance && <FinanceExport payments={payments} profiles={profiles} students={students} branches={scopedBranches} allFeeTypes={allFeeTypes} branchFees={branchFees} isAdmin={isAdmin} myBranch={myBranch} branchName={branchName} />}
+      {sec === 'exempt' && isAdmin && <FeeExemptions students={students} profiles={profiles} branches={branches} allFeeTypes={allFeeTypes} branchFees={branchFees} branchName={branchName} run={run} />}
+      {sec === 'payments' && canFinance && <PaymentsSection payments={payments} refunds={refunds} profiles={profiles} run={run} />}
+      {sec === 'events' && <TournamentsSection canFinance={canFinance} students={students} tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
       {sec === 'catalog' && <CatalogSection products={products} feeTypes={feeTypes} allFeeTypes={allFeeTypes} branchFees={branchFees} branches={branches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}
       {sec === 'branches' && <BranchesSection branches={branches} run={run} isAdmin={isAdmin} myBranch={myBranch} />}
       {sec === 'settings' && <PaymentSettings branchPay={branchPay} branches={branches} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}

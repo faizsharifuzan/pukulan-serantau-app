@@ -602,6 +602,7 @@ export default function App() {
   const activeFeeTypes = feeTypes.filter((f) => f.active);
   const feesForStudent = (st) => {
     const list = [];
+    if (st.fee_exempt) return list;
     activeFeeTypes.forEach((f) => {
       const o = branchFees.find((b) => b.branch_id === st.branch_id && b.fee_code === f.code);
       if (o && !o.active) return;
@@ -609,7 +610,7 @@ export default function App() {
     });
     branchFees.filter((b) => b.branch_id === st.branch_id && b.active && !feeTypes.some((f) => f.code === b.fee_code))
       .forEach((b) => list.push({ code: b.fee_code, label: b.label || b.fee_code, amount: Number(b.amount) }));
-    return list;
+    return st.fee_only ? list.filter((f) => st.fee_only.includes(f.code)) : list;
   };
   const branchFilteredStudents = selectedBranch === 'ALL'
     ? students
@@ -912,6 +913,7 @@ export default function App() {
                 {myStudents.slice(0, 12).map((c) => (
                   <div key={c.id} className="bg-slate-950 border border-slate-800 p-3 rounded-lg space-y-2">
                     <p className="text-xs font-bold">{c.full_name || c.short_name} <span className="font-normal text-slate-500">• {branchNameById[c.branch_id] || '-'}</span></p>
+                    {c.fee_exempt && <p className="text-[11px] text-emerald-300">Dikecualikan daripada yuran. Anda masih boleh membeli merchandise.</p>}
                     {feesForStudent(c).map((fee) => (
                       <div key={fee.code} className="flex items-center justify-between gap-2 text-xs">
                         <span>{fee.label} <b className="text-emerald-400">{rm(fee.amount)}</b></span>
