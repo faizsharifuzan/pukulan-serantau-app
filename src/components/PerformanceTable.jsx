@@ -40,7 +40,7 @@ function evaluate(r, rules) {
   return { ...r, step, attPct, checks, failed, layak: failed.length === 0 };
 }
 
-export default function PerformanceTable({ branchId, branchName, tournaments, isAdmin, reload }) {
+export default function PerformanceTable({ limited = false, branchId, branchName, tournaments, isAdmin, reload }) {
   const [rows, setRows] = useState([]);
   const [recs, setRecs] = useState([]);
   const [tests, setTests] = useState([]);
@@ -55,11 +55,12 @@ export default function PerformanceTable({ branchId, branchName, tournaments, is
 
   const load = useCallback(async () => {
     setBusy(true);
+    const none = Promise.resolve({ data: [] });
     const [o, p, t, g] = await Promise.all([
       supabase.rpc('grading_overview'),
       supabase.from('performance_records').select('*').order('event_date', { ascending: false }).limit(2000),
-      supabase.from('grading_tests').select('*').order('test_date', { ascending: false }).limit(1000),
-      supabase.from('grading_rules').select('*'),
+      limited ? none : supabase.from('grading_tests').select('*').order('test_date', { ascending: false }).limit(1000),
+      limited ? none : supabase.from('grading_rules').select('*'),
     ]);
     setRows(o.data || []); setRecs(p.data || []); setTests(t.data || []); setRulesList(g.data || []);
     setBusy(false);
@@ -67,28 +68,29 @@ export default function PerformanceTable({ branchId, branchName, tournaments, is
   useEffect(() => { if (open) load(); }, [open, load]);
 
   const rules = useMemo(() => Object.fromEntries(rulesList.map((r) => [r.key, r])), [rulesList]);
+  const plain = (r) => ({ ...r, step: null, attPct: r.att_n > 0 ? Math.round((r.att_ok / r.att_n) * 100) : null, checks: [], failed: [], layak: false });
   const list = useMemo(() => rows
     .filter((r) => !branchId || branchId === 'ALL' || r.branch_id === branchId)
-    .map((r) => evaluate(r, rules))
-    .filter((r) => (!onlyLayak || r.layak) && (!q.trim() || `${r.id} ${r.short_name} ${r.full_name}`.toLowerCase().includes(q.trim().toLowerCase()))), [rows, rules, branchId, onlyLayak, q]);
+    .map((r) => (limited ? plain(r) : evaluate(r, rules)))
+    .filter((r) => (!onlyLayak || r.layak) && (!q.trim() || `${r.id} ${r.short_name} ${r.full_name}`.toLowerCase().includes(q.trim().toLowerCase()))), [rows, rules, branchId, onlyLayak, q, limited]);
   const layak = list.filter((r) => r.layak);
   const nameOf = (id) => rows.find((r) => r.id === id)?.short_name || id;
 
   const exportXlsx = () => {
-    const all = rows.filter((r) => !branchId || branchId === 'ALL' || r.branch_id === branchId).map((r) => evaluate(r, rules));
+    const all = rows.filter((r) => !branchId || branchId === 'ALL' || r.branch_id === branchId).map((r) => (limited ? plain(r) : evaluate(r, rules)));
     const ids = new Set(all.map((r) => r.id));
     const wb = XLSX.utils.book_new();
     const add = (name, aoa, w) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = w.map((x) => ({ wch: x })); XLSX.utils.book_append_sheet(wb, ws, name); };
     add('Prestasi', [
       ['ID', 'Pesilat', 'Cawangan', 'Bengkung', 'Tahap', 'Skor Keseluruhan', 'Kehadiran 60h (%)', 'Kejohanan (bil)', 'Keputusan Terbaik', 'Open Friendly (bil)', 'Sparring Dalaman (bil)', 'Purata Penilaian', 'Purata Skor Latihan (/10)', 'Latihan Terkini', 'Tarikh Latihan', 'Cadangan Latihan', 'Ujian Terakhir', 'Langkah Seterusnya', 'Status'],
       ...all.map((r) => [r.id, r.short_name, branchName[r.branch_id] || '', STAGE[r.bengkung_stage], TIER[r.class_tier], r.overall_score ?? '', r.attPct ?? '', r.n_t, RANK[r.best_rank] || '-', r.n_o, r.n_i, r.avg_rating ?? '', r.avg_train ?? '', r.last_type || '', r.last_date ? fmt(r.last_date) : '', r.plan || '',
-        r.last_test_date ? `${fmt(r.last_test_date)} (${r.last_test_result})` : '', r.step?.label || 'Tertinggi', r.layak ? 'LAYAK DICADANG UJIAN' : r.maxed ? 'Tertinggi' : `Belum (${r.failed.length} syarat)`]),
-    ], [10, 22, 22, 18, 10, 10, 10, 10, 14, 10, 10, 10, 10, 12, 12, 36, 20, 30, 22]);
+        r.last_test_date ? `${fmt(r.last_test_date)} (${r.last_test_result})` : '', r.step?.label || 'Tertinggi', r.layak ? 'LAYAK DICADANG UJIAN' : r.maxed ? 'Tertinggi' : `Belum (${r.failed.length} syarat)`].slice(0, limited ? 16 : 19)),
+    ].map((row, i) => (i === 0 && limited ? row.slice(0, 16) : row)), [10, 22, 22, 18, 10, 10, 10, 10, 14, 10, 10, 10, 10, 12, 12, 36, 20, 30, 22]);
     add('Keputusan', [['Tarikh', 'Pesilat', 'Jenis', 'Tajuk', 'Keputusan', 'Menang', 'Kalah', 'Penilaian', 'Nota'],
       ...recs.filter((x) => ids.has(x.student_id)).map((x) => [x.event_date, nameOf(x.student_id), KIND[x.kind], x.title || '', RESULT[x.result] || '', x.wins, x.losses, x.rating ?? '', x.notes || ''])], [12, 22, 22, 28, 14, 8, 8, 10, 36]);
-    add('Ujian', [['Tarikh', 'Pesilat', 'Jenis', 'Dari', 'Ke', 'Keputusan', 'Markah', 'Nota'],
+    if (!limited) add('Ujian', [['Tarikh', 'Pesilat', 'Jenis', 'Dari', 'Ke', 'Keputusan', 'Markah', 'Nota'],
       ...tests.filter((x) => ids.has(x.student_id)).map((x) => [x.test_date, nameOf(x.student_id), x.kind === 'stripe' ? 'Naik Stripe' : 'Naik Bengkung', `${STAGE[x.from_stage]} / ${TIER[x.from_tier]}`, `${STAGE[x.to_stage]} / ${TIER[x.to_tier]}`, x.result, x.score ?? '', x.notes || ''])], [12, 22, 14, 30, 30, 10, 8, 36]);
-    add('Syarat', [['Langkah', 'Skor min', 'Kehadiran min (%)', 'Rekod min', 'Penilaian min', 'Jarak ujian (hari)'], ...rulesList.map((r) => [r.label, r.min_overall, r.min_att, r.min_perf, r.min_rating, r.cooldown_days])], [44, 10, 16, 10, 12, 16]);
+    if (!limited) add('Syarat', [['Langkah', 'Skor min', 'Kehadiran min (%)', 'Rekod min', 'Penilaian min', 'Jarak ujian (hari)'], ...rulesList.map((r) => [r.label, r.min_overall, r.min_att, r.min_perf, r.min_rating, r.cooldown_days])], [44, 10, 16, 10, 12, 16]);
     XLSX.writeFile(wb, `Prestasi_Pesilat_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
@@ -113,21 +115,22 @@ export default function PerformanceTable({ branchId, branchName, tournaments, is
         <h2 className="text-sm font-bold text-amber-400">Jadual Prestasi & Cadangan Ujian</h2>
         <button onClick={() => setOpen(!open)} className={`${btn} ${open ? 'bg-slate-800' : 'bg-amber-500 text-slate-950'}`}>{open ? 'Tutup' : 'Buka Jadual'}</button>
       </div>
-      <p className="text-[11px] text-slate-400">Hanya Master Admin, Admin dan Jurulatih. Skor dikemas kini automatik daripada rekod latihan, kejohanan, friendly dan sparring dalaman. Bengkung/stripe hanya berubah selepas ujian dilulus.</p>
+      <p className="text-[11px] text-slate-400">{limited ? 'Pembantu Jurulatih: lihat dan kemas kini rekod prestasi.' : 'Hanya Master Admin, Admin dan Jurulatih.'} Skor dikemas kini automatik daripada rekod latihan, kejohanan, friendly dan sparring dalaman. Bengkung/stripe hanya berubah selepas ujian dilulus.</p>
       {open && (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2 items-center">
             <input className={`${inp} sm:w-56`} placeholder="Cari pesilat" value={q} onChange={(e) => setQ(e.target.value)} />
-            <label className="text-xs text-slate-300 flex items-center gap-1.5"><input type="checkbox" checked={onlyLayak} onChange={(e) => setOnlyLayak(e.target.checked)} />Layak ujian sahaja</label>
+            {!limited && <label className="text-xs text-slate-300 flex items-center gap-1.5"><input type="checkbox" checked={onlyLayak} onChange={(e) => setOnlyLayak(e.target.checked)} />Layak ujian sahaja</label>}
             <button onClick={() => setForm({ type: 'result' })} className={`${btn} bg-emerald-600`}>+ Rekod Keputusan</button>
-            <button onClick={() => setForm({ type: 'test' })} className={`${btn} bg-purple-700`}>+ Rekod Ujian</button>
+            {!limited && <button onClick={() => setForm({ type: 'test' })} className={`${btn} bg-purple-700`}>+ Rekod Ujian</button>}
             <button onClick={exportXlsx} className={`${btn} bg-slate-800 text-amber-300`}>Eksport Excel</button>
             <button onClick={load} className={`${btn} bg-slate-800`}>{busy ? '...' : 'Muat semula'}</button>
           </div>
 
-          {form && <PerfForm form={form} rows={list.length ? list : rows} tournaments={tournaments} branchId={branchId} onClose={() => setForm(null)} onDone={() => { setForm(null); load(); reload && reload(); }} />}
+          {form && form.type === 'edit' && <ScoreEdit row={rows.find((r) => r.id === form.student)} onClose={() => setForm(null)} onDone={() => { setForm(null); load(); reload && reload(); }} />}
+          {form && form.type !== 'edit' && <PerfForm form={form} rows={list.length ? list : rows} tournaments={tournaments} branchId={branchId} onClose={() => setForm(null)} onDone={() => { setForm(null); load(); reload && reload(); }} />}
 
-          <div className="border border-emerald-700/50 rounded-lg p-3 space-y-2 bg-emerald-950/20">
+          {!limited && <div className="border border-emerald-700/50 rounded-lg p-3 space-y-2 bg-emerald-950/20">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-bold text-emerald-300">Cadangan Ujian ({layak.length})</p>
               {layak.length > 0 && <button disabled={aiBusy} onClick={() => analyse(layak.slice(0, 6))} className={`${btn} bg-amber-500 text-slate-950 disabled:opacity-50`}>{aiBusy ? 'AI sedang analisis...' : 'Analisis AI (maks 6)'}</button>}
@@ -149,12 +152,12 @@ export default function PerformanceTable({ branchId, branchName, tournaments, is
                 ))}
               </div>
             )}
-          </div>
+          </div>}
 
           <div className="overflow-x-auto">
             <table className="min-w-full text-[11px]">
               <thead className="text-left text-slate-400 border-b border-slate-800">
-                <tr>{['Pesilat', 'Bengkung / Tahap', 'Skor', 'Hadir', 'Kejohanan', 'Friendly', 'Dalaman', 'Penilaian', 'Latihan semasa', 'Cadangan latihan', 'Ujian terakhir', 'Status'].map((h) => <th key={h} className="px-2 py-1.5 font-semibold whitespace-nowrap">{h}</th>)}</tr>
+                <tr>{['Pesilat', 'Bengkung / Tahap', 'Skor', 'Hadir', 'Kejohanan', 'Friendly', 'Dalaman', 'Penilaian', 'Latihan semasa', 'Cadangan latihan', ...(limited ? [] : ['Ujian terakhir', 'Status']), ''].map((h) => <th key={h} className="px-2 py-1.5 font-semibold whitespace-nowrap">{h}</th>)}</tr>
               </thead>
               <tbody>
                 {list.map((r) => (
@@ -169,15 +172,16 @@ export default function PerformanceTable({ branchId, branchName, tournaments, is
                     <td className="px-2 py-1.5">{r.avg_rating ?? '-'}</td>
                     <td className="px-2 py-1.5 max-w-[160px]">{r.last_type ? <>{r.last_type} <span className="text-slate-500">{fmt(r.last_date)}</span><br /><span className="text-slate-400">{r.last_notes}</span></> : '-'}</td>
                     <td className="px-2 py-1.5 max-w-[200px] text-slate-300">{r.plan || '-'}</td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">{r.last_test_date ? <>{fmt(r.last_test_date)}<br /><span className={r.last_test_result === 'lulus' ? 'text-emerald-400' : 'text-red-300'}>{r.last_test_result}</span></> : '-'}</td>
-                    <td className="px-2 py-1.5 min-w-[170px]">
+                    {!limited && <td className="px-2 py-1.5 whitespace-nowrap">{r.last_test_date ? <>{fmt(r.last_test_date)}<br /><span className={r.last_test_result === 'lulus' ? 'text-emerald-400' : 'text-red-300'}>{r.last_test_result}</span></> : '-'}</td>}
+                    {!limited && <td className="px-2 py-1.5 min-w-[170px]">
                       {r.maxed ? <span className="text-slate-400">Tahap tertinggi</span>
                         : r.layak ? <b className="text-emerald-300">Layak: {r.step.label}</b>
                         : <span className="text-amber-300" title={r.failed.map((c) => `${c.k}: ${c.val} (perlu ${c.need})`).join('\n')}>Belum ({r.failed.length} syarat)<br /><span className="text-slate-500">{r.failed.map((c) => c.k).slice(0, 2).join(', ')}</span></span>}
-                    </td>
+                    </td>}
+                    <td className="px-2 py-1.5"><button onClick={() => setForm({ type: 'edit', student: r.id })} className={`${btn} bg-slate-800 text-amber-300 whitespace-nowrap`}>Edit skor</button></td>
                   </tr>
                 ))}
-                {list.length === 0 && <tr><td colSpan={12} className="px-2 py-3 text-slate-400">Tiada data.</td></tr>}
+                {list.length === 0 && <tr><td colSpan={13} className="px-2 py-3 text-slate-400">Tiada data.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -193,7 +197,7 @@ export default function PerformanceTable({ branchId, branchName, tournaments, is
             {recs.length === 0 && <p className="text-[11px] text-slate-400">Belum ada rekod.</p>}
           </div>
 
-          {isAdmin && <RulesEditor rules={rulesList} onSaved={load} />}
+          {isAdmin && !limited && <RulesEditor rules={rulesList} onSaved={load} />}
         </div>
       )}
     </div>
@@ -294,6 +298,40 @@ function RulesEditor({ rules, onSaved }) {
         }
         onSaved();
       }}>Simpan Syarat</button>
+    </div>
+  );
+}
+
+const SCORE_LABEL = { seni: 'Seni', power: 'Power', speed: 'Kelajuan', combat: 'Combat', agility: 'Ketangkasan', stamina: 'Stamina', strength: 'Kekuatan', tactical: 'Taktikal' };
+function ScoreEdit({ row, onClose, onDone }) {
+  const [sc, setSc] = useState(() => Object.fromEntries(Object.keys(SCORE_LABEL).map((k) => [k, row?.scores?.[k] ?? 60])));
+  const [plan, setPlan] = useState(row?.plan || '');
+  const [saving, setSaving] = useState(false);
+  if (!row) return null;
+  const save = async () => {
+    const out = {};
+    for (const k of Object.keys(SCORE_LABEL)) {
+      const v = Number(sc[k]);
+      if (Number.isNaN(v) || v < 0 || v > 100) return alert(`Skor ${SCORE_LABEL[k]} mesti 0-100.`);
+      out[k] = Math.round(v);
+    }
+    const overall = Math.round(Object.values(out).reduce((a, b) => a + b, 0) / 8);
+    setSaving(true);
+    const { error } = await supabase.from('students').update({ scores: { ...(row.scores || {}), ...out }, overall_score: overall, penambahbaikan: plan.trim() || null }).eq('id', row.id);
+    setSaving(false);
+    if (error) return alert('Ralat: ' + error.message);
+    onDone();
+  };
+  return (
+    <div className="bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-2 text-xs">
+      <p className="font-bold text-amber-300">Edit skor & cadangan latihan: {row.short_name}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {Object.entries(SCORE_LABEL).map(([k, l]) => (
+          <label key={k} className="space-y-1"><span className="text-slate-400">{l} (0-100)</span><input type="number" min="0" max="100" className={inp} value={sc[k]} onChange={(e) => setSc({ ...sc, [k]: e.target.value })} /></label>
+        ))}
+      </div>
+      <label className="space-y-1 block"><span className="text-slate-400">Cadangan latihan</span><textarea rows={2} className={inp} value={plan} onChange={(e) => setPlan(e.target.value)} placeholder="Cth: tambah drill kelajuan dan stamina 3 kali seminggu" /></label>
+      <div className="flex gap-2"><button disabled={saving} onClick={save} className={`${btn} bg-emerald-600`}>Simpan</button><button onClick={onClose} className={`${btn} bg-slate-800`}>Batal</button></div>
     </div>
   );
 }
