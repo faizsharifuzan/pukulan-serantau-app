@@ -12,6 +12,7 @@ function describe(a, nm, bn) {
     case 'training_note': return `Catatan ${a.session_type} untuk ${nm(a.student_id)}: "${a.notes}"${a.score != null ? ` (skor ${a.score}/10)` : ''}`;
     case 'weight': return `Berat ${nm(a.student_id)}: ${a.kg}kg`;
     case 'scores': return `Kemas kini ${nm(a.student_id)}: ${Object.entries(a.scores).map(([k, v]) => `${k}=${v}`).join(', ')}${a.class_tier ? `, tahap ${a.class_tier}` : ''}${a.bengkung_stage ? `, bengkung ${a.bengkung_stage}` : ''}`;
+    case 'result': return `Keputusan ${nm(a.student_id)}: ${({ tournament: 'Kejohanan', open_friendly: 'Open Friendly', internal: 'Sparring Dalaman' })[a.kind]}${a.title ? ` "${a.title}"` : ''}${a.result ? `, ${a.result}` : ''}${a.rating != null ? `, penilaian ${a.rating}/10` : ''} (${a.date})`;
     case 'tournament': return `Cipta kejohanan "${a.title}" (${a.event_type}) ${a.event_date}, ${rm(a.entry_fee)}, cawangan ${bn(a.branch_id)}`;
     case 'branch_fee': return `Yuran ${a.fee_code} cawangan ${bn(a.branch_id)}: ${rm(a.amount)}${a.active ? '' : ' (dimatikan)'}`;
     default: return a.type;
@@ -19,7 +20,7 @@ function describe(a, nm, bn) {
 }
 
 async function run(a, me, students, isAssistant) {
-  if (isAssistant && !['attendance', 'training_note', 'weight'].includes(a.type)) return { error: { message: 'Tidak dibenarkan untuk pembantu jurulatih' } };
+  if (isAssistant && !['attendance', 'training_note', 'weight', 'scores', 'result'].includes(a.type)) return { error: { message: 'Tidak dibenarkan untuk pembantu jurulatih' } };
   const st = (id) => students.find((s) => s.id === id);
   if (a.type === 'attendance')
     return supabase.from('attendance').upsert(a.student_ids.map((id) => ({ student_id: id, session_date: a.date, status: a.status, recorded_by: me })), { onConflict: 'student_id,session_date' });
@@ -32,12 +33,14 @@ async function run(a, me, students, isAssistant) {
     if (r.error) return r;
     return supabase.from('students').update({ current_weight: a.kg, weight_class: wc, weight_updated_at: new Date().toISOString() }).eq('id', a.student_id);
   }
+  if (a.type === 'result')
+    return supabase.from('performance_records').insert({ student_id: a.student_id, kind: a.kind, event_date: a.date, title: a.title || null, result: a.result, wins: a.wins || 0, losses: a.losses || 0, rating: a.rating });
   if (a.type === 'scores') {
     const s = st(a.student_id);
     const scores = { ...Object.fromEntries(SCORE_KEYS.map((k) => [k, 60])), ...(s?.scores || {}), ...a.scores };
     const patch = { scores, overall_score: Math.round(SCORE_KEYS.reduce((t, k) => t + Number(scores[k]), 0) / SCORE_KEYS.length) };
-    if (a.class_tier) patch.class_tier = a.class_tier;
-    if (a.bengkung_stage) patch.bengkung_stage = a.bengkung_stage;
+    if (a.class_tier && !isAssistant) patch.class_tier = a.class_tier;
+    if (a.bengkung_stage && !isAssistant) patch.bengkung_stage = a.bengkung_stage;
     return supabase.from('students').update(patch).eq('id', a.student_id);
   }
   if (a.type === 'tournament')
