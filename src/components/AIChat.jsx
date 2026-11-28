@@ -18,7 +18,8 @@ function describe(a, nm, bn) {
   }
 }
 
-async function run(a, me, students) {
+async function run(a, me, students, isAssistant) {
+  if (isAssistant && !['attendance', 'training_note', 'weight'].includes(a.type)) return { error: { message: 'Tidak dibenarkan untuk pembantu jurulatih' } };
   const st = (id) => students.find((s) => s.id === id);
   if (a.type === 'attendance')
     return supabase.from('attendance').upsert(a.student_ids.map((id) => ({ student_id: id, session_date: a.date, status: a.status, recorded_by: me })), { onConflict: 'student_id,session_date' });
@@ -46,7 +47,7 @@ async function run(a, me, students) {
   return { error: { message: 'Tindakan tidak dikenali' } };
 }
 
-export default function AIChat({ me, isStaff, isAdmin, students, branchName, reload }) {
+export default function AIChat({ isAssistant = false, me, isStaff, isAdmin, students, branchName, reload }) {
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -72,7 +73,7 @@ export default function AIChat({ me, isStaff, isAdmin, students, branchName, rel
 
   async function confirm(mi, ai) {
     const item = msgs[mi].actions[ai];
-    const res = await run(item.a, me, students);
+    const res = await run(item.a, me, students, isAssistant);
     setMsgs((m) => m.map((x, i) => i !== mi ? x : { ...x, actions: x.actions.map((y, k) => k !== ai ? y : { ...y, state: res.error ? 'error' : 'done', msg: res.error?.message }) }));
     if (!res.error) reload();
   }

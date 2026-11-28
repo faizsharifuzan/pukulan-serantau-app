@@ -19,6 +19,7 @@ import { StatusBadge, PaymentHistory, rm } from './components/PaymentUI';
 import { MyPayslips } from './components/Payslips';
 import ClassSession from './components/ClassSession';
 import StudentHistory from './components/StudentHistory';
+import BengkungGuide from './components/BengkungGuide';
 import AIChat from './components/AIChat';
 
 const SCORE_KEYS = [
@@ -150,7 +151,7 @@ export default function App() {
     setBranchFees(bfees || []);
     setRefunds(refs || []);
     setBranchPay(Object.fromEntries((bps || []).map((r) => [r.branch_id, r])));
-    if (currentProf.role === 'coach' && currentProf.branch_id) setSelectedBranch(currentProf.branch_id);
+    if (['coach', 'assistant'].includes(currentProf.role) && currentProf.branch_id) setSelectedBranch(currentProf.branch_id);
     setClaimables(claimable || []);
 
     const infoMap = Object.fromEntries((infoRows || []).map((r) => [r.key, r.value]));
@@ -195,7 +196,7 @@ export default function App() {
         },
       });
       if (error) return setAuthMsg(error.message);
-      setAuthMsg(regRole === 'coach' ? 'Akaun didaftar. Permohonan jurulatih menunggu kelulusan Admin. Sila semak emel (jika perlu) dan log masuk.' : 'Akaun berjaya didaftar! Semak emel untuk pengesahan jika diminta, kemudian log masuk.');
+      setAuthMsg(['coach', 'assistant'].includes(regRole) ? 'Akaun didaftar. Permohonan jurulatih / pembantu menunggu kelulusan Admin. Sila semak emel (jika perlu) dan log masuk.' : 'Akaun berjaya didaftar! Semak emel untuk pengesahan jika diminta, kemudian log masuk.');
       setAuthMode('login');
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -215,7 +216,8 @@ export default function App() {
   }
 
   const isAdmin = profile?.role === 'admin' && !viewAsParent;
-  const isStaff = profile?.role === 'admin' || profile?.role === 'coach';
+  const isAssistant = profile?.role === 'assistant';
+  const isStaff = ['admin', 'coach', 'assistant'].includes(profile?.role);
   const isStudentRole = profile?.role === 'student';
   const actingAsStaff = isStaff && !viewAsParent;
 
@@ -414,6 +416,7 @@ export default function App() {
 
   const hqId = branches.find((b) => b.is_hq)?.id || null;
   const payeeOf = (c) => {
+    if (c.type === 'member_fee') return profile?.branch_id || hqId;
     if (c.type === 'fee') return students.find((x) => x.id === c.student_id)?.branch_id || hqId;
     if (c.type === 'tournament') return tournaments.find((x) => x.id === c.tournament_id)?.branch_id || hqId;
     return products.find((x) => x.id === c.product_id)?.branch_id || profile?.branch_id || hqId;
@@ -527,6 +530,7 @@ export default function App() {
                     <option value="parent">Ibu Bapa / Penjaga</option>
                     <option value="student">Pesilat (Pelajar)</option>
                     <option value="coach">Mohon Jadi Jurulatih (perlu kelulusan Admin)</option>
+                    <option value="assistant">Mohon Jadi Pembantu Jurulatih (perlu kelulusan Admin)</option>
                   </select>
                 </div>
                 <div>
@@ -596,8 +600,8 @@ export default function App() {
     );
   }
 
-  const isMember = ['admin', 'coach'].includes(profile?.role) || profile?.membership_status === 'approved';
-  const lockBranch = profile?.role === 'coach' && !viewAsParent ? profile?.branch_id : null;
+  const isMember = ['admin', 'coach', 'assistant'].includes(profile?.role) || profile?.membership_status === 'approved';
+  const lockBranch = ['coach', 'assistant'].includes(profile?.role) && !viewAsParent ? profile?.branch_id : null;
   const visibleBranches = lockBranch ? branches.filter((b) => b.id === lockBranch) : branches;
   const activeFeeTypes = feeTypes.filter((f) => f.active);
   const feesForStudent = (st) => {
@@ -634,7 +638,7 @@ export default function App() {
     { id: 'about', label: 'Tentang Kami', icon: Info },
   ];
   if (actingAsStaff) {
-    navTabs.push({ id: 'manage', label: isAdmin ? 'Pentadbiran' : 'Pengurusan Cawangan', icon: Building2 });
+    navTabs.push({ id: 'manage', label: isAdmin ? 'Pentadbiran' : isAssistant ? 'Merchandise' : 'Pengurusan Cawangan', icon: Building2 });
   }
 
   return (
@@ -645,7 +649,7 @@ export default function App() {
           <div>
             <h1 className="text-sm sm:text-base font-bold text-amber-400 leading-tight">AKADEMI PUKULAN SERANTAU</h1>
             <p className="text-[11px] text-emerald-200">
-              {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : (profile?.role === 'coach' && profile?.is_branch_admin ? 'ADMIN CAWANGAN' : profile?.role)}</span>
+              {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : (profile?.role === 'coach' && profile?.is_branch_admin ? 'ADMIN CAWANGAN' : profile?.role === 'assistant' ? 'PEMBANTU JURULATIH' : profile?.role)}</span>
               {profile?.member_no && <> • <span className="font-mono text-amber-300">{profile.member_no}</span></>}
             </p>
           </div>
@@ -720,7 +724,7 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
+                {!isAssistant && <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
                   <button onClick={() => setShowAddStudent(true)} className="px-3 py-2 rounded-lg bg-emerald-600 text-white font-semibold text-xs flex items-center gap-1.5">
                     <Plus className="w-4 h-4" /> Tambah Pesilat Baharu
                   </button>
@@ -734,7 +738,7 @@ export default function App() {
                     <Upload className="w-4 h-4" /> Muat Naik Excel / CSV
                     <input type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelUpload} className="hidden" />
                   </label>
-                </div>
+                </div>}
               </div>
             )}
 
@@ -821,9 +825,11 @@ export default function App() {
                   <div className="flex flex-wrap gap-2 pt-1">
                     {actingAsStaff ? (
                       <>
+                        {!isAssistant ? (
                         <button onClick={() => setEditingStudent(s)} className="flex-1 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-amber-300">
                           Edit & Berat
                         </button>
+                        ) : <span className="flex-1 text-[11px] text-slate-500">Lihat sahaja. Kemas kini berat di tab Kelas.</span>}
                         {isAdmin && s.parent_id && (
                           <button onClick={() => unclaimStudent(s.id, 'parent_id')} className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300">
                             Lepas Ibu Bapa
@@ -900,13 +906,25 @@ export default function App() {
           <ClassSession students={branchFilteredStudents} me={session.user.id} weightClass={getPersilatWeightClass} reload={() => loadAllData(session.user.id)} />
         )}
         {tab === 'ai' && (
-          <AIChat me={session.user.id} isStaff={actingAsStaff} isAdmin={isAdmin} students={actingAsStaff ? students : myStudents} branchName={branchNameById} reload={() => loadAllData(session.user.id)} />
+          <AIChat me={session.user.id} isAssistant={isAssistant} isStaff={actingAsStaff} isAdmin={isAdmin} students={actingAsStaff ? students : myStudents} branchName={branchNameById} reload={() => loadAllData(session.user.id)} />
         )}
         {tab === 'history' && !actingAsStaff && <StudentHistory students={myStudents} />}
 
         {/* TAB 4: SHOP & FEES */}
         {tab === 'shop' && (
           <div className="space-y-6">
+            {['coach', 'assistant'].includes(profile?.role) && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                <h2 className="text-sm font-bold text-amber-400">{isAssistant ? 'Yuran Pembantu Jurulatih' : 'Yuran Jurulatih'}</h2>
+                {profile.fee_exempt && <p className="text-[11px] text-emerald-300">Anda dikecualikan daripada yuran.</p>}
+                {feesForStudent(profile).map((fee) => (
+                  <div key={fee.code} className="flex items-center justify-between gap-2 text-xs">
+                    <span>{fee.label} <b className="text-emerald-400">{rm(fee.amount)}</b></span>
+                    <button onClick={() => addToCart({ type: 'member_fee', fee_code: fee.code, label: `${fee.label} (Jurulatih)`, amount: fee.amount })} className="px-2 py-1 rounded bg-emerald-900/70 hover:bg-emerald-700 text-[10px]">+ Troli</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <h2 className="text-sm font-bold text-amber-400 mb-3">Yuran Rasmi Akademi (Multi-Anak)</h2>
               <div className="grid sm:grid-cols-3 gap-3">
@@ -1070,6 +1088,11 @@ export default function App() {
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+              <h3 className="text-sm font-bold text-amber-400">Sistem Bengkung</h3>
+              <BengkungGuide />
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-bold text-amber-400">Carta Organisasi</h3>
               <OrgChart org={academyInfo.org_chart || []} />
               {isAdmin && <p className="text-[11px] text-slate-400">Tip: Anda boleh arahkan AI Pembantu untuk kemaskini Carta Organisasi atau Syarat pada bila-bila masa.</p>}
@@ -1106,7 +1129,7 @@ export default function App() {
               students={students} tournaments={tournaments} products={products}
               feeTypes={activeFeeTypes} allFeeTypes={feeTypes} branchFees={branchFees}
               payments={payments} refunds={refunds} academyInfo={academyInfo}
-              branchName={branchNameById} branchPay={branchPay} isBranchAdmin={profile?.role === 'coach' && !!profile?.is_branch_admin} reload={() => loadAllData(session.user.id)} upload={uploadClubImage}
+              branchName={branchNameById} branchPay={branchPay} isBranchAdmin={profile?.role === 'coach' && !!profile?.is_branch_admin} isAssistant={isAssistant} reload={() => loadAllData(session.user.id)} upload={uploadClubImage}
             />
           </div>
         )}

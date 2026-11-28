@@ -2,8 +2,7 @@ import React from 'react';
 
 export default function BengkungVisualizer({ classTier = 'Beginner', ageCategory = '', bengkungStage = 1 }) {
   const stripes = classTier === 'Advanced' ? 3 : classTier === 'Intermediate' ? 2 : 1;
-  const isRemaja = ageCategory.includes('13-17');
-  const stage = isRemaja ? (bengkungStage || 1) : 1;
+  const stage = bengkungStage || 1;
 
   let beltStyle = 'bg-white border-slate-300 text-slate-900';
   let stageLabel = 'Bengkung Putih';
