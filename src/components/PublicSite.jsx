@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import PSSPSLogo from './PSSPSLogo';
 import OrgChart from './OrgChart';
+import BengkungGuide from './BengkungGuide';
 import { ImageGallery, imagesOf } from './Media';
 import { Trophy, ShoppingBag, MapPin, Clock, Users, Facebook, Instagram, ExternalLink, Lock } from 'lucide-react';
 
@@ -105,6 +106,10 @@ export default function PublicSite({ onLogin, onRegister }) {
               {rules.syarat_khas && <div className="bg-slate-950 rounded-lg p-3"><p className="font-bold text-amber-300 mb-1">Syarat Khas</p><p className="whitespace-pre-line">{rules.syarat_khas}</p></div>}
             </div>
           )}
+          <div>
+            <p className="text-xs font-bold text-amber-300 mb-2">Sistem Bengkung</p>
+            <BengkungGuide />
+          </div>
           {org.length > 0 && (
             <div>
               <p className="text-xs font-bold text-amber-300 mb-2 flex items-center gap-1.5"><Users className="w-4 h-4" />Carta Organisasi</p>

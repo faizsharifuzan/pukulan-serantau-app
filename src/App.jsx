@@ -19,6 +19,7 @@ import { StatusBadge, PaymentHistory, rm } from './components/PaymentUI';
 import { MyPayslips } from './components/Payslips';
 import ClassSession from './components/ClassSession';
 import StudentHistory from './components/StudentHistory';
+import BengkungGuide from './components/BengkungGuide';
 import AIChat from './components/AIChat';
 
 const SCORE_KEYS = [
@@ -1084,6 +1085,11 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+              <h3 className="text-sm font-bold text-amber-400">Sistem Bengkung</h3>
+              <BengkungGuide />
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
