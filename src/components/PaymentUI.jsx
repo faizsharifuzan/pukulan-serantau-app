@@ -67,7 +67,7 @@ export function PaymentHistory({ payments, refunds, onCancel }) {
             </div>
             <StatusBadge status={p.status} />
           </div>
-          <ul className="text-[11px] text-slate-500 list-disc pl-4">{(p.items || []).map((i, k) => <li key={k}>{i.label}</li>)}</ul>
+          <ul className="text-[11px] text-slate-500 list-disc pl-4">{(p.items || []).map((i, k) => <li key={k}>{i.label}{i.remark ? <span className="text-amber-300"> — Catatan: {i.remark}</span> : null}</li>)}</ul>
           <RefundLines refunds={refunds.filter((r) => r.payment_id === p.id)} />
           <div className="flex flex-wrap gap-2 pt-1">
             {p.receipt_url && (

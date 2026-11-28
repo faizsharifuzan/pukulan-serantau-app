@@ -3,6 +3,7 @@ import { Trash2, Plus, Upload, Check, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { StatusBadge, STATUS_LABEL, METHOD_LABEL, RefundLines, openReceipt, rm } from './PaymentUI';
 import { PayslipAdmin } from './Payslips';
+import { Field, ImageUploader, imagesOf } from './Media';
 
 const inp = 'px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs w-full';
 const btn = 'px-3 py-1.5 rounded-lg text-xs font-semibold';
@@ -54,6 +55,9 @@ function UserRow({ u, me, isAdmin, branches, branchName, run }) {
           <p className="font-bold text-white">
             {u.full_name} {isMe && <span className="text-amber-400">(Anda)</span>}
             {u.is_active === false && <span className="ml-2 text-red-400">NYAHAKTIF</span>}
+            {u.member_no ? <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-900 text-emerald-300 font-mono text-[10px]">{u.member_no}</span>
+              : u.membership_status === 'pending' ? <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px]">Mohon ahli</span>
+              : <span className="ml-2 text-[10px] text-slate-500">Bukan ahli</span>}
           </p>
           <p className="text-[11px] text-slate-400">{u.phone || '-'} • IC: {u.ic_no || '-'} • {branchName[u.branch_id] || 'Tiada Cawangan'}</p>
         </div>
@@ -71,6 +75,15 @@ function UserRow({ u, me, isAdmin, branches, branchName, run }) {
             </select>
           ) : (
             <span className="px-2 py-1 rounded bg-slate-800 text-emerald-300 font-semibold uppercase text-[10px]">{u.role}</span>
+          )}
+          {u.membership_status === 'pending' && ['parent', 'student'].includes(u.role) && (
+            <>
+              <button onClick={() => run(() => supabase.rpc('review_membership', { p_user: u.id, p_approve: true }))} className={`${btn} bg-emerald-600`}>Lulus Ahli</button>
+              <button onClick={() => run(() => supabase.rpc('review_membership', { p_user: u.id, p_approve: false }))} className={`${btn} bg-red-900 text-red-200`}>Tolak</button>
+            </>
+          )}
+          {u.membership_status === 'approved' && ['parent', 'student'].includes(u.role) && u.id !== me && (
+            <button onClick={() => confirm(`Batalkan keahlian ${u.full_name}? Nombor ahli dikekalkan jika diluluskan semula.`) && run(() => supabase.rpc('review_membership', { p_user: u.id, p_approve: false }))} className={`${btn} bg-slate-800 text-slate-300`}>Batal Ahli</button>
           )}
           {canTouch && <button onClick={() => setEdit(!edit)} className={`${btn} bg-slate-800 text-amber-300`}>{edit ? 'Tutup' : 'Edit'}</button>}
           {canTouch && !isMe && (
@@ -103,16 +116,32 @@ function UsersSection({ profiles, me, isAdmin, branches, branchName, run }) {
   const [q, setQ] = useState('');
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return profiles.filter((p) => !s || `${p.full_name} ${p.ic_no} ${p.phone}`.toLowerCase().includes(s));
+    return profiles.filter((p) => !s || `${p.full_name} ${p.ic_no} ${p.phone} ${p.member_no || ''}`.toLowerCase().includes(s));
   }, [profiles, q]);
   const pendingCoach = profiles.filter((p) => p.requested_role === 'coach' && p.role !== 'coach');
+  const pendingMem = profiles.filter((p) => p.membership_status === 'pending' && ['parent', 'student'].includes(p.role));
+  const review = (id, ok) => run(() => supabase.rpc('review_membership', { p_user: id, p_approve: ok }));
   return (
     <div className={card}>
       <h2 className="text-sm font-bold text-amber-400">Pengguna {isAdmin ? '& Peranan' : '(cawangan anda)'} ({profiles.length})</h2>
       {isAdmin && pendingCoach.length > 0 && (
         <p className="text-[11px] bg-amber-500/10 border border-amber-500/40 text-amber-300 rounded-lg p-2">{pendingCoach.length} permohonan jurulatih menunggu kelulusan.</p>
       )}
-      <input className={inp} placeholder="Cari nama / IC / telefon" value={q} onChange={(e) => setQ(e.target.value)} />
+      {pendingMem.length > 0 && (
+        <div className="border border-amber-500/40 rounded-lg p-2 space-y-1.5">
+          <p className="text-[11px] font-bold text-amber-300">Permohonan Keahlian Menunggu Kelulusan ({pendingMem.length})</p>
+          {pendingMem.map((p) => (
+            <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 rounded p-2 text-xs">
+              <span><b>{p.full_name}</b> <span className="text-slate-400">• {p.role === 'student' ? 'Pesilat' : 'Ibu bapa'} • {branchName[p.branch_id] || '-'} • {p.phone || '-'}</span></span>
+              <span className="flex gap-1.5">
+                <button onClick={() => review(p.id, true)} className={`${btn} bg-emerald-600`}>Lulus & beri No. Ahli</button>
+                <button onClick={() => review(p.id, false)} className={`${btn} bg-red-900 text-red-200`}>Tolak</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <input className={inp} placeholder="Cari nama / IC / telefon / no. ahli" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="space-y-2">
         {list.map((u) => <UserRow key={u.id + u.role + u.is_active} u={u} me={me} isAdmin={isAdmin} branches={branches} branchName={branchName} run={run} />)}
       </div>
@@ -265,30 +294,24 @@ function BranchSelect({ value, onChange, branches, isAdmin, allLabel = 'Semua Ca
   );
 }
 function TournamentForm({ init, onSave, onCancel, upload, label, branches, isAdmin, myBranch }) {
-  const [t, setT] = useState({ ...init, branch_id: isAdmin ? init.branch_id : myBranch });
+  const [t, setT] = useState({ ...init, images: imagesOf(init, 'poster_url'), branch_id: isAdmin ? init.branch_id : myBranch });
   return (
     <div className="grid sm:grid-cols-2 gap-2">
-      <input className={inp} placeholder="Nama Kejohanan" value={t.title} onChange={(e) => setT({ ...t, title: e.target.value })} />
-      <select className={inp} value={t.event_type} onChange={(e) => setT({ ...t, event_type: e.target.value })}>
+      <Field label="Nama kejohanan" hint="Cth: Kejohanan Silat Terbuka Selangor 2026"><input className={inp} placeholder="Nama kejohanan" value={t.title} onChange={(e) => setT({ ...t, title: e.target.value })} /></Field>
+      <Field label="Jenis kejohanan" hint="Menentukan syarat kelayakan pesilat"><select className={inp} value={t.event_type} onChange={(e) => setT({ ...t, event_type: e.target.value })}>
         {EVENT_TYPES.map((x) => <option key={x}>{x}</option>)}
-      </select>
-      <input type="date" className={inp} value={t.event_date || ''} onChange={(e) => setT({ ...t, event_date: e.target.value })} />
-      <input type="number" min="0" step="0.01" className={inp} placeholder="Yuran (RM)" value={t.entry_fee} onChange={(e) => setT({ ...t, entry_fee: e.target.value })} />
-      <input className={inp} placeholder="Lokasi" value={t.location || ''} onChange={(e) => setT({ ...t, location: e.target.value })} />
-      <BranchSelect value={t.branch_id} onChange={(v) => setT({ ...t, branch_id: v })} branches={branches} isAdmin={isAdmin} />
-      <label className={`${inp} cursor-pointer flex items-center gap-2 sm:col-span-2`}>
-        <Upload className="w-4 h-4 text-amber-400" /> {t.poster_url ? 'Poster ✓ (tukar)' : 'Muat Naik Poster'}
-        <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-          const f = e.target.files?.[0];
-          if (f) { const url = await upload(f, 'posters'); if (url) setT({ ...t, poster_url: url }); }
-        }} />
-      </label>
-      <textarea rows={2} className={`${inp} sm:col-span-2`} placeholder="Keterangan" value={t.description || ''} onChange={(e) => setT({ ...t, description: e.target.value })} />
+      </select></Field>
+      <Field label="Tarikh kejohanan" hint="Pilih tarikh acara berlangsung"><input type="date" className={inp} value={t.event_date || ''} onChange={(e) => setT({ ...t, event_date: e.target.value })} /></Field>
+      <Field label="Yuran penyertaan (RM)" hint="Taip 0 jika percuma"><input type="number" min="0" step="0.01" className={inp} placeholder="Cth: 40" value={t.entry_fee} onChange={(e) => setT({ ...t, entry_fee: e.target.value })} /></Field>
+      <Field label="Lokasi / tempat" hint="Cth: Stadium Shah Alam"><input className={inp} placeholder="Nama tempat / alamat" value={t.location || ''} onChange={(e) => setT({ ...t, location: e.target.value })} /></Field>
+      <Field label="Cawangan" hint="Pilih 'Semua Cawangan' jika terbuka untuk semua"><BranchSelect value={t.branch_id} onChange={(v) => setT({ ...t, branch_id: v })} branches={branches} isAdmin={isAdmin} /></Field>
+      <div className="sm:col-span-2"><ImageUploader label="Gambar / poster kejohanan" images={t.images} onChange={(images) => setT({ ...t, images })} upload={upload} folder="posters" /></div>
+      <Field label="Keterangan" className="sm:col-span-2" hint="Maklumat tambahan: kategori, syarat, tarikh tutup pendaftaran dan sebagainya"><textarea rows={2} className={inp} placeholder="Tulis keterangan kejohanan" value={t.description || ''} onChange={(e) => setT({ ...t, description: e.target.value })} /></Field>
       <div className="sm:col-span-2 flex gap-2">
         <button onClick={() => {
           if (!t.title?.trim() || !t.event_date) return alert('Isi nama & tarikh.');
           if (Number(t.entry_fee) < 0 || Number.isNaN(Number(t.entry_fee))) return alert('Yuran tidak sah.');
-          onSave({ ...t, title: t.title.trim(), entry_fee: Number(t.entry_fee) || 0 });
+          onSave({ ...t, title: t.title.trim(), entry_fee: Number(t.entry_fee) || 0, poster_url: t.images[0] || null });
         }} className={`${btn} bg-emerald-600`}>{label}</button>
         {onCancel && <button onClick={onCancel} className={`${btn} bg-slate-800`}>Batal</button>}
       </div>
@@ -327,7 +350,7 @@ function Roster({ t, students }) {
 function TournamentsSection({ tournaments, run, me, upload, branches, branchName, isAdmin, myBranch, students }) {
   const [editId, setEditId] = useState(null);
   const [rosterId, setRosterId] = useState(null);
-  const blank = { title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: '', description: '', branch_id: null };
+  const blank = { title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: '', images: [], description: '', branch_id: null };
   const mine = (t) => isAdmin || (t.branch_id && t.branch_id === myBranch);
   return (
     <div className="space-y-4">
@@ -469,54 +492,49 @@ function FeesSection({ feeTypes, allFeeTypes, branchFees, branches, isAdmin, myB
   );
 }
 function ProductRow({ p, run, upload, canEdit, branchName }) {
-  const [f, setF] = useState(p);
-  const dirty = JSON.stringify(f) !== JSON.stringify(p);
+  const [f, setF] = useState({ ...p, images: imagesOf(p, 'image_url') });
+  const base = JSON.stringify({ ...p, images: imagesOf(p, 'image_url') });
+  const dirty = JSON.stringify(f) !== base;
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 grid sm:grid-cols-7 gap-2 items-center text-xs">
-      <input disabled={!canEdit} className={`${inp} sm:col-span-2`} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-      <input disabled={!canEdit} type="number" min="0" step="0.01" className={inp} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} />
-      <span className="text-[11px] text-slate-400">{p.branch_id ? branchName[p.branch_id] : 'Semua cawangan'}</span>
-      <label className="flex items-center gap-1.5"><input disabled={!canEdit} type="checkbox" checked={!!f.in_stock} onChange={(e) => setF({ ...f, in_stock: e.target.checked })} /> Ada Stok</label>
-      <label className={`${btn} bg-slate-800 text-center ${canEdit ? 'cursor-pointer' : 'opacity-40'}`}>
-        {f.image_url ? 'Gambar ✓' : 'Gambar'}
-        <input disabled={!canEdit} type="file" accept="image/*" className="hidden" onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (file) { const url = await upload(file, 'products'); if (url) setF({ ...f, image_url: url }); }
-        }} />
-      </label>
-      {canEdit && (
-        <div className="flex gap-2 justify-end">
-          <button disabled={!dirty} onClick={() => run(() => supabase.from('products').update({ name: f.name.trim(), price: Number(f.price), in_stock: f.in_stock, image_url: f.image_url }).eq('id', p.id))} className={`${btn} bg-emerald-600 disabled:opacity-40`}>Simpan</button>
-          <button onClick={() => confirm(`Padam produk "${p.name}"?`) && run(() => supabase.from('products').delete().eq('id', p.id))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
-        </div>
-      )}
+    <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-2 text-xs">
+      <div className="grid sm:grid-cols-6 gap-2 items-end">
+        <Field label="Nama produk" className="sm:col-span-2"><input disabled={!canEdit} className={inp} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label="Harga (RM)"><input disabled={!canEdit} type="number" min="0" step="0.01" className={inp} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></Field>
+        <Field label="Cawangan"><span className="block text-[11px] text-slate-400 py-2">{p.branch_id ? branchName[p.branch_id] : 'Semua cawangan'}</span></Field>
+        <label className="flex items-center gap-1.5 pb-2"><input disabled={!canEdit} type="checkbox" checked={!!f.in_stock} onChange={(e) => setF({ ...f, in_stock: e.target.checked })} /> Ada stok</label>
+        {canEdit && (
+          <div className="flex gap-2 justify-end pb-1">
+            <button disabled={!dirty} onClick={() => run(() => supabase.from('products').update({ name: f.name.trim(), price: Number(f.price), in_stock: f.in_stock, images: f.images, image_url: f.images[0] || null }).eq('id', p.id))} className={`${btn} bg-emerald-600 disabled:opacity-40`}>Simpan</button>
+            <button onClick={() => confirm(`Padam produk "${p.name}"?`) && run(() => supabase.from('products').delete().eq('id', p.id))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
+          </div>
+        )}
+      </div>
+      {canEdit ? <ImageUploader label="Gambar produk" images={f.images} onChange={(images) => setF({ ...f, images })} upload={upload} folder="products" /> : null}
     </div>
   );
 }
 function CatalogSection({ products, feeTypes, allFeeTypes, branchFees, branches, branchName, isAdmin, myBranch, run, upload }) {
-  const [np, setNp] = useState({ name: '', price: 45, category: 'Merchandise', image_url: '', branch_id: isAdmin ? null : myBranch });
+  const [np, setNp] = useState({ name: '', price: 45, category: 'Merchandise', images: [], branch_id: isAdmin ? null : myBranch });
   const scope = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
   return (
     <div className="space-y-4">
       <FeesSection feeTypes={feeTypes} allFeeTypes={allFeeTypes} branchFees={branchFees} branches={branches} isAdmin={isAdmin} myBranch={myBranch} run={run} />
       <div className={card}>
         <h2 className="text-sm font-bold text-amber-400">Produk / Merchandise</h2>
-        {products.map((p) => <ProductRow key={p.id + p.price + p.name + p.in_stock + p.image_url} p={p} run={run} upload={upload} branchName={branchName} canEdit={isAdmin || (p.branch_id && p.branch_id === myBranch)} />)}
-        <div className="grid sm:grid-cols-5 gap-2 pt-2 border-t border-slate-800 text-xs">
-          <input className={inp} placeholder="Nama produk" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} />
-          <input type="number" min="0" step="0.01" className={inp} value={np.price} onChange={(e) => setNp({ ...np, price: e.target.value })} />
-          <BranchSelect value={np.branch_id} onChange={(v) => setNp({ ...np, branch_id: v })} branches={scope} isAdmin={isAdmin} />
-          <label className={`${inp} cursor-pointer flex items-center gap-2`}>
-            <Upload className="w-4 h-4 text-amber-400" />{np.image_url ? 'Gambar ✓' : 'Gambar'}
-            <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-              const f = e.target.files?.[0];
-              if (f) { const url = await upload(f, 'products'); if (url) setNp({ ...np, image_url: url }); }
-            }} />
-          </label>
+        {products.map((p) => <ProductRow key={p.id + p.price + p.name + p.in_stock + (p.images || []).join('|')} p={p} run={run} upload={upload} branchName={branchName} canEdit={isAdmin || (p.branch_id && p.branch_id === myBranch)} />)}
+        <div className="space-y-2 pt-2 border-t border-slate-800 text-xs">
+          <p className="text-[11px] font-bold text-amber-300">Tambah produk baharu</p>
+          <div className="grid sm:grid-cols-4 gap-2 items-end">
+            <Field label="Nama produk" hint="Cth: Baju T-shirt Pukulan Serantau"><input className={inp} placeholder="Nama produk" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} /></Field>
+            <Field label="Harga (RM)" hint="Harga seunit"><input type="number" min="0" step="0.01" className={inp} placeholder="Cth: 50" value={np.price} onChange={(e) => setNp({ ...np, price: e.target.value })} /></Field>
+            <Field label="Cawangan" hint="Siapa boleh beli"><BranchSelect value={np.branch_id} onChange={(v) => setNp({ ...np, branch_id: v })} branches={scope} isAdmin={isAdmin} /></Field>
+            <Field label="Kategori"><input className={inp} placeholder="Merchandise / Peralatan" value={np.category} onChange={(e) => setNp({ ...np, category: e.target.value })} /></Field>
+          </div>
+          <ImageUploader label="Gambar produk" images={np.images} onChange={(images) => setNp({ ...np, images })} upload={upload} folder="products" />
           <button className={`${btn} bg-emerald-600 flex items-center justify-center gap-1`} onClick={async () => {
             if (!np.name.trim() || Number(np.price) <= 0) return alert('Isi nama & harga.');
-            if (await run(() => supabase.from('products').insert({ name: np.name.trim(), price: Number(np.price), category: np.category, image_url: np.image_url || null, branch_id: isAdmin ? np.branch_id : myBranch }))) setNp({ ...np, name: '', price: 45, image_url: '' });
-          }}><Plus className="w-3.5 h-3.5" />Tambah</button>
+            if (await run(() => supabase.from('products').insert({ name: np.name.trim(), price: Number(np.price), category: np.category || 'Merchandise', images: np.images, image_url: np.images[0] || null, branch_id: isAdmin ? np.branch_id : myBranch }))) setNp({ ...np, name: '', price: 45, images: [] });
+          }}><Plus className="w-3.5 h-3.5" />Tambah Produk</button>
         </div>
       </div>
     </div>
@@ -608,9 +626,17 @@ function PaymentSettings({ info, run, upload }) {
 function AcademyEditor({ academyInfo, run }) {
   const [org, setOrg] = useState(academyInfo.org_chart || []);
   const [rules, setRules] = useState({ bengkung: '', syarat_am: '', syarat_khas: '', ...(academyInfo.rules || {}) });
+  const [soc, setSoc] = useState({ facebook: '', instagram: '', tiktok: '', ...(academyInfo.social || {}) });
   const save = (key, value) => run(() => supabase.from('academy_info').upsert({ key, value, updated_at: new Date().toISOString() }), 'Disimpan.');
   return (
     <div className="space-y-4">
+      <div className={card}>
+        <h2 className="text-sm font-bold text-amber-400">Pautan Media Sosial (papar di laman awam)</h2>
+        {[['facebook', 'Facebook', 'https://www.facebook.com/...'], ['instagram', 'Instagram', 'https://www.instagram.com/...'], ['tiktok', 'TikTok', 'https://www.tiktok.com/@...']].map(([k, l, ph]) => (
+          <Field key={k} label={`Pautan ${l}`} hint="Tampal pautan penuh akaun / profil"><input className={inp} placeholder={ph} value={soc[k] || ''} onChange={(e) => setSoc({ ...soc, [k]: e.target.value })} /></Field>
+        ))}
+        <button onClick={() => { for (const v of Object.values(soc)) if (v && !/^https:\/\//.test(v)) return alert('Pautan mesti bermula dengan https://'); save('social', soc); }} className={`${btn} bg-emerald-600`}>Simpan Pautan</button>
+      </div>
       <div className={card}>
         <h2 className="text-sm font-bold text-amber-400">Carta Organisasi</h2>
         {org.map((o, i) => (
@@ -618,10 +644,10 @@ function AcademyEditor({ academyInfo, run }) {
             <select className={inp} value={o.level ?? 2} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, level: Number(e.target.value) } : x))}>
               <option value={0}>Guru Utama</option><option value={1}>Guru Adat</option><option value={2}>Guru</option><option value={3}>Jurulatih / Pembantu</option>
             </select>
-            <input className={inp} placeholder="Jawatan" value={o.role || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, role: e.target.value } : x))} />
-            <input className={inp} placeholder="Di bawah (nama guru)" value={o.under || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, under: e.target.value } : x))} />
-            <input className={inp} placeholder="Nama" value={o.name || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, name: e.target.value } : x))} />
-            <input className={inp} placeholder="Cawangan" value={o.branch || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, branch: e.target.value } : x))} />
+            <input className={inp} placeholder="Jawatan (cth: Jurulatih Kanan)" value={o.role || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, role: e.target.value } : x))} />
+            <input className={inp} placeholder="Di bawah guru siapa (nama)" value={o.under || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, under: e.target.value } : x))} />
+            <input className={inp} placeholder="Nama penuh" value={o.name || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, name: e.target.value } : x))} />
+            <input className={inp} placeholder="Cawangan (cth: Puchong)" value={o.branch || ''} onChange={(e) => setOrg(org.map((x, k) => k === i ? { ...x, branch: e.target.value } : x))} />
             <button onClick={() => setOrg(org.filter((_, k) => k !== i))} className="p-1.5 rounded-lg bg-red-950 text-red-300 justify-self-start"><Trash2 className="w-4 h-4" /></button>
           </div>
         ))}
@@ -632,9 +658,9 @@ function AcademyEditor({ academyInfo, run }) {
       </div>
       <div className={card}>
         <h2 className="text-sm font-bold text-amber-400">Bengkung & Syarat Penyertaan</h2>
-        <textarea rows={2} className={inp} placeholder="Tahap bengkung" value={rules.bengkung} onChange={(e) => setRules({ ...rules, bengkung: e.target.value })} />
-        <textarea rows={2} className={inp} placeholder="Syarat am" value={rules.syarat_am} onChange={(e) => setRules({ ...rules, syarat_am: e.target.value })} />
-        <textarea rows={2} className={inp} placeholder="Syarat khas" value={rules.syarat_khas} onChange={(e) => setRules({ ...rules, syarat_khas: e.target.value })} />
+        <textarea rows={2} className={inp} placeholder="Senarai tahap bengkung (cth: Putih, Kuning, Hijau...)" value={rules.bengkung} onChange={(e) => setRules({ ...rules, bengkung: e.target.value })} />
+        <textarea rows={2} className={inp} placeholder="Syarat am penyertaan (umur, kesihatan, dll)" value={rules.syarat_am} onChange={(e) => setRules({ ...rules, syarat_am: e.target.value })} />
+        <textarea rows={2} className={inp} placeholder="Syarat khas (cth: kebenaran ibu bapa)" value={rules.syarat_khas} onChange={(e) => setRules({ ...rules, syarat_khas: e.target.value })} />
         <button onClick={() => save('rules', rules)} className={`${btn} bg-emerald-600`}>Simpan Syarat</button>
         <p className="text-[11px] text-slate-500">Tajuk, tagline, visi & misi: edit di tab "Tentang Kami".</p>
       </div>
