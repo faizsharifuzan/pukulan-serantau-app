@@ -582,11 +582,17 @@ function BranchesSection({ branches, run, isAdmin, myBranch }) {
 }
 
 /* ---------------- SETTINGS (admin): payment info, about, org chart, rules ---------------- */
-function PaymentSettings({ info, run, upload }) {
-  const [f, setF] = useState({ bank_name: '', account_no: '', account_name: '', bank_logo_url: null, qr_url: null, fpx_enabled: false, ...info });
+function PaymentSettings({ branchPay, branches, isAdmin, myBranch, run, upload }) {
+  const list = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
+  const [bid, setBid] = useState(list[0]?.id || '');
+  if (!bid) return <div className={card}><p className="text-xs text-slate-400">Cawangan belum ditetapkan.</p></div>;
+  return <PaymentSettingsForm key={bid} bid={bid} setBid={setBid} list={list} info={branchPay[bid] || {}} run={run} upload={upload} />;
+}
+function PaymentSettingsForm({ bid, setBid, list, info, run, upload }) {
+  const [f, setF] = useState({ bank_name: '', account_no: '', account_name: '', bank_logo_url: null, qr_url: null, ...info });
   const img = (key, label, folder) => (
     <div className="space-y-1">
-      <p className="text-[11px] text-slate-400">{label}</p>
+      <p className="text-[11px] font-semibold text-slate-300">{label}</p>
       {f[key] && <img src={f[key]} alt={label} className="h-24 w-auto rounded bg-white p-1 object-contain" />}
       <div className="flex gap-2">
         <label className={`${btn} bg-slate-800 cursor-pointer flex items-center gap-1.5`}>
@@ -602,24 +608,31 @@ function PaymentSettings({ info, run, upload }) {
   );
   return (
     <div className={card}>
-      <h2 className="text-sm font-bold text-amber-400">Tetapan Pembayaran Kelab</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-bold text-amber-400">Akaun Bank &amp; QR Cawangan</h2>
+        {list.length > 1 && (
+          <select className={inp + ' !w-auto'} value={bid} onChange={(e) => setBid(e.target.value)}>
+            {list.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        )}
+      </div>
+      <p className="text-[11px] text-slate-400">Semua bayaran (yuran, kejohanan, merchandise) pesilat cawangan ini akan masuk ke akaun di bawah, dan disahkan oleh jurulatih/admin cawangan ini. Kejohanan "Semua Cawangan" yang dibuat admin masuk ke akaun Cawangan Pusat (HQ).</p>
       <div className="grid sm:grid-cols-3 gap-2">
-        <input className={inp} placeholder="Nama bank" value={f.bank_name} onChange={(e) => setF({ ...f, bank_name: e.target.value })} />
-        <input className={inp} placeholder="No. akaun" value={f.account_no} onChange={(e) => setF({ ...f, account_no: e.target.value.replace(/[^0-9]/g, '') })} />
-        <input className={`${inp} uppercase`} placeholder="Nama akaun" value={f.account_name} onChange={(e) => setF({ ...f, account_name: e.target.value })} />
+        <Field label="Nama bank" hint="Cth: Bank Rakyat"><input className={inp} placeholder="Nama bank" value={f.bank_name || ''} onChange={(e) => setF({ ...f, bank_name: e.target.value })} /></Field>
+        <Field label="No. akaun" hint="Nombor sahaja, tanpa sengkang"><input className={inp} placeholder="Cth: 1102427345" value={f.account_no || ''} onChange={(e) => setF({ ...f, account_no: e.target.value.replace(/[^0-9]/g, '') })} /></Field>
+        <Field label="Nama pemegang akaun" hint="Seperti dalam buku bank"><input className={`${inp} uppercase`} placeholder="Nama pemegang akaun" value={f.account_name || ''} onChange={(e) => setF({ ...f, account_name: e.target.value })} /></Field>
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
         {img('bank_logo_url', 'Logo bank (dipaparkan di sebelah no. akaun)', 'bank')}
-        {img('qr_url', 'Kod QR DuitNow (dipaparkan semasa pembayaran)', 'qr')}
+        {img('qr_url', 'Kod QR DuitNow cawangan ini (dipaparkan semasa pembayaran)', 'qr')}
       </div>
-      <label className="flex items-center gap-2 text-xs text-slate-300">
-        <input type="checkbox" checked={!!f.fpx_enabled} onChange={(e) => setF({ ...f, fpx_enabled: e.target.checked })} />
-        Aktifkan FPX Online (hidupkan hanya selepas Herepay siap diuji)
-      </label>
       <button className={`${btn} bg-emerald-600`} onClick={() => {
-        if (!f.account_no || !f.account_name.trim()) return alert('Isi no. akaun & nama akaun.');
-        run(() => supabase.from('academy_info').upsert({ key: 'payment', value: { ...f, account_name: f.account_name.trim().toUpperCase() }, updated_at: new Date().toISOString() }), 'Tetapan pembayaran disimpan.');
-      }}>Simpan Tetapan</button>
+        if (!f.account_no || !f.account_name?.trim()) return alert('Isi no. akaun & nama akaun.');
+        run(() => supabase.from('branch_payment_settings').upsert({
+          branch_id: bid, bank_name: f.bank_name || null, account_no: f.account_no, account_name: f.account_name.trim().toUpperCase(),
+          bank_logo_url: f.bank_logo_url || null, qr_url: f.qr_url || null, updated_at: new Date().toISOString(),
+        }), 'Tetapan bayaran cawangan disimpan.');
+      }}>Simpan Tetapan Cawangan</button>
     </div>
   );
 }
@@ -671,14 +684,15 @@ function AcademyEditor({ academyInfo, run }) {
 /* ---------------- SHELL ---------------- */
 export default function AdminPanel({
   me, isAdmin, myBranch, profiles, branches, students, tournaments, products, feeTypes, allFeeTypes, branchFees,
-  payments, refunds, academyInfo, branchName, reload, upload,
+  payments, refunds, academyInfo, branchName, reload, upload, branchPay = {},
 }) {
   const { run } = useRun(reload);
   const scopedBranches = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
   const sections = [
     ['users', 'Pengguna'], ['links', 'Pesilat ↔ Akaun'], ['payments', 'Bayaran'], ['events', 'Kejohanan'],
     ['catalog', 'Yuran & Produk'], ['branches', isAdmin ? 'Cawangan' : 'Cawangan Saya'],
-    ...(isAdmin ? [['settings', 'Tetapan Bayaran'], ['academy', 'Maklumat Akademi'], ['payslips', 'Slip Gaji']] : []),
+    ['settings', 'Tetapan Bayaran'],
+    ...(isAdmin ? [['academy', 'Maklumat Akademi'], ['payslips', 'Slip Gaji']] : []),
   ];
   const [sec, setSec] = useState('users');
   return (
@@ -695,7 +709,7 @@ export default function AdminPanel({
       {sec === 'events' && <TournamentsSection students={students} tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
       {sec === 'catalog' && <CatalogSection products={products} feeTypes={feeTypes} allFeeTypes={allFeeTypes} branchFees={branchFees} branches={branches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}
       {sec === 'branches' && <BranchesSection branches={branches} run={run} isAdmin={isAdmin} myBranch={myBranch} />}
-      {sec === 'settings' && isAdmin && <PaymentSettings info={academyInfo.payment || {}} run={run} upload={upload} />}
+      {sec === 'settings' && <PaymentSettings branchPay={branchPay} branches={branches} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}
       {sec === 'academy' && isAdmin && <AcademyEditor academyInfo={academyInfo} run={run} />}
       {sec === 'payslips' && isAdmin && <PayslipAdmin me={me} profiles={profiles} branches={branches} clubName={academyInfo.about?.title} />}
     </div>
