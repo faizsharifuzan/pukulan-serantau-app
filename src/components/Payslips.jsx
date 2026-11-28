@@ -87,7 +87,7 @@ function LineEditor({ title, rows, onChange }) {
       <p className="text-[11px] font-bold text-amber-300">{title}</p>
       {rows.map((r, i) => (
         <div key={i} className="flex gap-2">
-          <input className={inp} placeholder="Keterangan" value={r.label} onChange={(e) => onChange(rows.map((x, k) => (k === i ? { ...x, label: e.target.value } : x)))} />
+          <input className={inp} placeholder="Keterangan (cth: Elaun transport)" value={r.label} onChange={(e) => onChange(rows.map((x, k) => (k === i ? { ...x, label: e.target.value } : x)))} />
           <input type="number" min="0" step="0.01" className={`${inp} w-28`} placeholder="RM" value={r.amount} onChange={(e) => onChange(rows.map((x, k) => (k === i ? { ...x, amount: e.target.value } : x)))} />
           <button onClick={() => onChange(rows.filter((_, k) => k !== i))} className="p-1.5 rounded-lg bg-red-950 text-red-300"><Trash2 className="w-4 h-4" /></button>
         </div>
@@ -154,7 +154,7 @@ export function PayslipAdmin({ me, profiles, branches, clubName }) {
           <LineEditor title="Elaun / Bonus" rows={f.allowances} onChange={(allowances) => setF({ ...f, allowances })} />
           <LineEditor title="Potongan" rows={f.deductions} onChange={(deductions) => setF({ ...f, deductions })} />
         </div>
-        <textarea rows={2} className={inp} placeholder="Catatan (pilihan)" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+        <textarea rows={2} className={inp} placeholder="Catatan / Remark (pilihan)" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-slate-300">Pendapatan {rm(preview.earn)} − Potongan {rm(preview.ded)} = <b className="text-emerald-400">Bersih {rm(preview.net)}</b></p>
           <div className="flex items-center gap-2">

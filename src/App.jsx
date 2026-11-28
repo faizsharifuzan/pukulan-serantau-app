@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import PublicSite from './components/PublicSite';
+import { ImageGallery, imagesOf, Field } from './components/Media';
 import * as XLSX from 'xlsx';
 import {
   Users, Trophy, ShoppingBag, CreditCard, Upload, Download,
@@ -43,6 +45,8 @@ export default function App() {
   const [phone, setPhone] = useState('');
   const [regRole, setRegRole] = useState('parent'); // 'parent' | 'coach' | 'student'
   const [regBranchId, setRegBranchId] = useState('');
+  const [wantMember, setWantMember] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
   const [authMsg, setAuthMsg] = useState('');
 
   // Main app states
@@ -149,6 +153,7 @@ export default function App() {
       org_chart: infoMap.org_chart || [],
       rules: infoMap.rules || {},
       payment: infoMap.payment || {},
+      social: infoMap.social || {},
     });
     setAboutForm(infoMap.about || { title: 'Akademi Pukulan Serantau', tagline: '', description: '', vision: '', mission: '' });
 
@@ -179,7 +184,7 @@ export default function App() {
         options: {
           data: {
             full_name: fullName.trim().toUpperCase(), ic_no: cleanIc, phone: `+60${cleanPhone}`,
-            role: regRole, branch_id: regBranchId || null,
+            role: regRole, branch_id: regBranchId || null, want_member: wantMember ? 'true' : 'false',
           },
         },
       });
@@ -362,8 +367,10 @@ export default function App() {
   }
 
   async function uploadClubImage(file, folder) {
-    const ext = file.name.split('.').pop();
-    const path = `${folder}/${Date.now()}.${ext}`;
+    if (!file.type.startsWith('image/')) { alert('Sila pilih fail gambar (JPG/PNG/WEBP).'); return ''; }
+    if (file.size > 8 * 1024 * 1024) { alert('Saiz gambar melebihi 8MB.'); return ''; }
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const { error } = await supabase.storage.from('club-media').upload(path, file);
     if (error) {
       alert('Ralat muat naik gambar: ' + error.message);
@@ -420,7 +427,15 @@ export default function App() {
   const orderItems = () => cart.map((c) => ({
     type: c.type, student_id: c.student_id, fee_code: c.fee_code,
     tournament_id: c.tournament_id, product_id: c.product_id, qty: c.qty,
+    ...(c.type === 'product' && c.remark?.trim() ? { remark: c.remark.trim().slice(0, 200) } : {}),
   }));
+  const setRemark = (cartId, remark) => setCart((prev) => prev.map((c) => c.cartId === cartId ? { ...c, remark } : c));
+  async function requestMembership() {
+    const { error } = await supabase.rpc('request_membership');
+    if (error) return alert('Ralat: ' + error.message);
+    alert('Permohonan keahlian dihantar. Admin/jurulatih cawangan anda akan meluluskan.');
+    loadAllData(session.user.id);
+  }
 
   async function fnErrorMessage(error, data) {
     if (data?.error) return data.error;
@@ -450,6 +465,7 @@ export default function App() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-emerald-950/80 via-slate-950/80 to-black/80">
         <div className="w-full max-w-md bg-slate-900/90 border border-emerald-800/60 rounded-2xl p-6 shadow-2xl">
+          <button type="button" onClick={() => { setShowAuth(false); setAuthMsg(''); }} className="text-[11px] text-emerald-400 hover:underline mb-2">← Laman Utama</button>
           <div className="flex flex-col items-center text-center mb-6">
             <PSSPSLogo size={76} />
             <h1 className="mt-3 text-xl font-bold text-amber-400">Tetapkan Kata Laluan Baharu</h1>
@@ -473,6 +489,10 @@ export default function App() {
     );
   }
 
+  if (!session && !showAuth) {
+    return <PublicSite onLogin={() => { setAuthMode('login'); setShowAuth(true); }} onRegister={() => { setAuthMode('register'); setShowAuth(true); }} />;
+  }
+
   if (!session) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-emerald-950/80 via-slate-950/80 to-black/80">
@@ -486,7 +506,7 @@ export default function App() {
             {authMode === 'register' && (
               <>
                 <div>
-                  <label className="text-[10px] text-slate-400 block mb-1">Daftar Sebagai</label>
+                  <label className="text-[11px] text-slate-300 block mb-1">Daftar sebagai</label>
                   <select className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" value={regRole} onChange={(e) => setRegRole(e.target.value)}>
                     <option value="parent">Ibu Bapa / Penjaga</option>
                     <option value="student">Pesilat (Pelajar)</option>
@@ -494,23 +514,30 @@ export default function App() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-400 block mb-1">Cawangan</label>
+                  <label className="text-[11px] text-slate-300 block mb-1">Cawangan (pilih cawangan terdekat anda)</label>
                   <select className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" value={regBranchId} onChange={(e) => setRegBranchId(e.target.value)}>
                     {branches.map((b) => (
-                      <option key={b.id} value={b.id}>{b.name} ({b.state})</option>
+                      <option key={b.id} value={b.id}>{b.name} ({b.state}){/pusat|hq/i.test(b.address || '') ? ' — HQ' : ''}</option>
                     ))}
                   </select>
                 </div>
+                {regRole === 'parent' && (
+                  <label className="flex items-start gap-2 text-[11px] text-slate-300 bg-slate-800/60 border border-slate-700 rounded-lg p-2">
+                    <input type="checkbox" className="mt-0.5" checked={wantMember} onChange={(e) => setWantMember(e.target.checked)} />
+                    <span>Saya juga mahu menjadi <b>ahli</b> (dapat No. Ahli, boleh bayar yuran, sertai kejohanan & beli merchandise). Perlu kelulusan Admin/Jurulatih.</span>
+                  </label>
+                )}
+                {regRole === 'student' && <p className="text-[10px] text-emerald-300">Pesilat akan dimohon sebagai ahli secara automatik. Menunggu kelulusan Admin/Jurulatih.</p>}
                 <input
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm uppercase"
-                  placeholder="Nama Penuh (Sama Seperti IC)"
+                  placeholder="Nama penuh seperti dalam IC"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   required
                 />
                 <input
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm"
-                  placeholder="No. IC (12 digit tanpa - cth: 950101145522)"
+                  placeholder="No. IC 12 digit tanpa sengkang (cth: 950101145522)"
                   maxLength={12}
                   value={icNo}
                   onChange={(e) => setIcNo(e.target.value.replace(/\D/g, ''))}
@@ -520,7 +547,7 @@ export default function App() {
                   <span className="px-3 py-2.5 bg-slate-700 text-amber-300 font-bold text-sm">+60</span>
                   <input
                     className="w-full px-3 py-2.5 bg-transparent text-sm outline-none"
-                    placeholder="123456789 (WhatsApp)"
+                    placeholder="No. telefon WhatsApp tanpa 0 (cth: 123456789)"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').replace(/^0/, ''))}
                     required
@@ -528,9 +555,9 @@ export default function App() {
                 </div>
               </>
             )}
-            <input type="email" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Emel" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input type="email" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Alamat emel (cth: nama@gmail.com)" value={email} onChange={(e) => setEmail(e.target.value)} required />
             {authMode !== 'forgot' && (
-              <input type="password" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Kata Laluan" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <input type="password" className="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-sm" placeholder="Kata laluan (min. 8 aksara)" value={password} onChange={(e) => setPassword(e.target.value)} required />
             )}
             {authMsg && <p className="text-xs text-amber-400">{authMsg}</p>}
             <button className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm">
@@ -553,6 +580,7 @@ export default function App() {
     );
   }
 
+  const isMember = ['admin', 'coach'].includes(profile?.role) || profile?.membership_status === 'approved';
   const lockBranch = profile?.role === 'coach' && !viewAsParent ? profile?.branch_id : null;
   const visibleBranches = lockBranch ? branches.filter((b) => b.id === lockBranch) : branches;
   const activeFeeTypes = feeTypes.filter((f) => f.active);
@@ -601,6 +629,7 @@ export default function App() {
             <h1 className="text-sm sm:text-base font-bold text-amber-400 leading-tight">AKADEMI PUKULAN SERANTAU</h1>
             <p className="text-[11px] text-emerald-200">
               {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : profile?.role}</span>
+              {profile?.member_no && <> • <span className="font-mono text-amber-300">{profile.member_no}</span></>}
             </p>
           </div>
         </div>
@@ -622,6 +651,17 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {!isMember && (
+        <div className="mx-4 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-xs text-amber-200 flex flex-wrap items-center justify-between gap-2">
+          <p>
+            {profile?.membership_status === 'pending'
+              ? <>Permohonan keahlian anda <b>sedang menunggu kelulusan</b> Admin/Jurulatih. Selepas diluluskan anda akan dapat No. Ahli dan boleh membayar yuran, menyertai kejohanan & membeli merchandise.</>
+              : <>Anda <b>bukan ahli</b> (tiada No. Ahli). Anda masih boleh melihat maklumat & rekod anak, tetapi bayaran yuran, penyertaan kejohanan dan pembelian hanya untuk ahli.</>}
+          </p>
+          {profile?.membership_status !== 'pending' && <button onClick={requestMembership} className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold">Mohon Jadi Ahli</button>}
+        </div>
+      )}
 
       <nav className="flex gap-2 overflow-x-auto px-4 py-3 bg-slate-900/80 border-b border-slate-800">
         {navTabs.map((t) => (
@@ -801,7 +841,7 @@ export default function App() {
             <div className="grid sm:grid-cols-2 gap-4">
               {tournaments.filter((t) => actingAsStaff || !t.branch_id || myStudents.length === 0 || myStudents.some((c) => c.branch_id === t.branch_id)).map((t) => (
                 <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                  {t.poster_url && <img src={t.poster_url} alt={t.title} className="w-full h-44 object-cover" />}
+                  <ImageGallery images={imagesOf(t, 'poster_url')} alt={t.title} />
                   <div className="p-4 space-y-2">
                     <div className="flex justify-between items-start">
                       <div>
@@ -819,7 +859,9 @@ export default function App() {
                             <p className="text-xs font-bold">{child.full_name || child.short_name}</p>
                             <p className="text-[10px] text-slate-400">{child.weight_class || getPersilatWeightClass(child.age, child.current_weight)} • {elig.reason}</p>
                           </div>
-                          {elig.eligible ? (
+                          {elig.eligible && !isMember ? (
+                            <span className="text-[10px] text-amber-300 font-semibold">Untuk ahli sahaja</span>
+                          ) : elig.eligible ? (
                             <button
                               onClick={() => addToCart({ student_id: child.id, type: 'tournament', tournament_id: t.id, label: `Yuran ${t.title} (${child.short_name})`, amount: Number(t.entry_fee) })}
                               className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-[11px] font-bold whitespace-nowrap"
@@ -861,8 +903,9 @@ export default function App() {
                         <span>{fee.label} <b className="text-emerald-400">{rm(fee.amount)}</b></span>
                         <button
                           onClick={() => addToCart({ student_id: c.id, type: 'fee', fee_code: fee.code, label: `${fee.label} (${c.short_name})`, amount: fee.amount })}
-                          className="px-2 py-1 rounded bg-emerald-900/70 hover:bg-emerald-700 text-[10px]"
-                        >+ Troli</button>
+                          disabled={!isMember}
+                          className="px-2 py-1 rounded bg-emerald-900/70 hover:bg-emerald-700 text-[10px] disabled:opacity-40"
+                        >{isMember ? '+ Troli' : 'Ahli sahaja'}</button>
                       </div>
                     ))}
                   </div>
@@ -875,13 +918,13 @@ export default function App() {
             <div className="grid sm:grid-cols-3 gap-4">
               {products.filter((p) => (p.in_stock || isAdmin) && (actingAsStaff || !p.branch_id || myStudents.length === 0 || myStudents.some((c) => c.branch_id === p.branch_id))).map((p) => (
                 <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                  {p.image_url && <img src={p.image_url} alt={p.name} className="w-full h-36 object-cover" />}
+                  <ImageGallery images={imagesOf(p, 'image_url')} alt={p.name} height="h-40" />
                   <div className="p-3 space-y-2">
                     <h3 className="text-sm font-bold">{p.name}</h3>
                     <div className="flex items-center justify-between">
                       <span className="text-emerald-400 font-bold text-sm">RM{Number(p.price).toFixed(2)}</span>
-                      <button disabled={!p.in_stock} onClick={() => addToCart({ type: 'product', product_id: p.id, unit: Number(p.price), label: p.name, amount: Number(p.price) })} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-xs font-semibold flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> {p.in_stock ? 'Troli' : 'Habis'}
+                      <button disabled={!p.in_stock || !isMember} title={isMember ? '' : 'Pembelian untuk ahli sahaja'} onClick={() => addToCart({ type: 'product', product_id: p.id, unit: Number(p.price), label: p.name, amount: Number(p.price) })} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-xs font-semibold flex items-center gap-1">
+                        <Plus className="w-3 h-3" /> {!p.in_stock ? 'Habis' : isMember ? 'Troli' : 'Ahli sahaja'}
                       </button>
                     </div>
                   </div>
@@ -923,12 +966,19 @@ export default function App() {
               ) : (
                 <>
                   {cart.map((item) => (
-                    <div key={item.cartId} className="flex justify-between items-center gap-2 text-xs bg-slate-950 p-2.5 rounded-lg">
+                    <div key={item.cartId} className="flex flex-wrap justify-between items-center gap-2 text-xs bg-slate-950 p-2.5 rounded-lg">
                       <span className="flex-1">{item.label}{item.type === 'product' && item.qty > 1 ? ` ×${item.qty}` : ''}</span>
                       <span className="font-bold text-emerald-400">RM{Number(item.amount).toFixed(2)}</span>
                       <button onClick={() => removeFromCart(item.cartId)} className="px-2.5 py-1 rounded-lg bg-red-950/70 border border-red-900 text-red-300 font-semibold flex items-center gap-1" title="Batalkan item ini">
                         <X className="w-3.5 h-3.5" /> Batal
                       </button>
+                      {item.type === 'product' && (
+                        <div className="basis-full">
+                          <Field label="Catatan / Remark untuk penjual (pilihan)" hint="Cth: Saiz L, warna hitam, nama untuk dicetak. Maks 200 aksara.">
+                            <input maxLength={200} value={item.remark || ''} onChange={(e) => setRemark(item.cartId, e.target.value)} placeholder="Cth: Saiz L / Warna hitam" className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs" />
+                          </Field>
+                        </div>
+                      )}
                     </div>
                   ))}
                   <div className="flex justify-between items-center pt-2 border-t border-slate-800">
@@ -968,11 +1018,11 @@ export default function App() {
 
               {editingAbout ? (
                 <form onSubmit={handleSaveAbout} className="space-y-2 text-xs">
-                  <input className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Tajuk" value={aboutForm.title || ''} onChange={(e) => setAboutForm({ ...aboutForm, title: e.target.value })} />
-                  <input className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Tagline" value={aboutForm.tagline || ''} onChange={(e) => setAboutForm({ ...aboutForm, tagline: e.target.value })} />
-                  <textarea rows={3} className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Pengenalan" value={aboutForm.description || ''} onChange={(e) => setAboutForm({ ...aboutForm, description: e.target.value })} />
-                  <input className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Visi" value={aboutForm.vision || ''} onChange={(e) => setAboutForm({ ...aboutForm, vision: e.target.value })} />
-                  <input className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Misi" value={aboutForm.mission || ''} onChange={(e) => setAboutForm({ ...aboutForm, mission: e.target.value })} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Tajuk akademi (cth: Akademi Pukulan Serantau)" value={aboutForm.title || ''} onChange={(e) => setAboutForm({ ...aboutForm, title: e.target.value })} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Tagline / slogan ringkas" value={aboutForm.tagline || ''} onChange={(e) => setAboutForm({ ...aboutForm, tagline: e.target.value })} />
+                  <textarea rows={3} className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Pengenalan akademi (sejarah, aktiviti, dll)" value={aboutForm.description || ''} onChange={(e) => setAboutForm({ ...aboutForm, description: e.target.value })} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Visi akademi" value={aboutForm.vision || ''} onChange={(e) => setAboutForm({ ...aboutForm, vision: e.target.value })} />
+                  <input className="w-full px-3 py-2 rounded bg-slate-800" placeholder="Misi akademi" value={aboutForm.mission || ''} onChange={(e) => setAboutForm({ ...aboutForm, mission: e.target.value })} />
                   <button className="px-4 py-2 rounded-lg bg-emerald-600 font-bold">Simpan Info</button>
                 </form>
               ) : (
@@ -1072,20 +1122,20 @@ export default function App() {
               <button type="button" onClick={() => setShowAddStudent(false)}><X className="w-5 h-5 text-slate-400" /></button>
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs">
-              <input className="col-span-2 px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama Penuh (Sama Seperti IC)" value={newStudent.full_name} onChange={(e) => setNewStudent({ ...newStudent, full_name: e.target.value })} required />
-              <input className="px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama Panggilan" value={newStudent.short_name} onChange={(e) => setNewStudent({ ...newStudent, short_name: e.target.value })} />
-              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. IC (12 digit tanpa -)" maxLength={12} value={newStudent.ic_no} onChange={(e) => setNewStudent({ ...newStudent, ic_no: e.target.value.replace(/\D/g, '') })} />
+              <input className="col-span-2 px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama penuh pesilat seperti dalam IC" value={newStudent.full_name} onChange={(e) => setNewStudent({ ...newStudent, full_name: e.target.value })} required />
+              <input className="px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama panggilan (cth: Aiman)" value={newStudent.short_name} onChange={(e) => setNewStudent({ ...newStudent, short_name: e.target.value })} />
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. IC pesilat 12 digit tanpa sengkang" maxLength={12} value={newStudent.ic_no} onChange={(e) => setNewStudent({ ...newStudent, ic_no: e.target.value.replace(/\D/g, '') })} />
               <select className="px-3 py-2 rounded bg-slate-800" value={newStudent.branch_id} onChange={(e) => setNewStudent({ ...newStudent, branch_id: e.target.value })}>
                 {visibleBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
-              <input type="number" className="px-3 py-2 rounded bg-slate-800" placeholder="Umur" value={newStudent.age} onChange={(e) => setNewStudent({ ...newStudent, age: e.target.value })} />
-              <input type="number" step="0.1" className="px-3 py-2 rounded bg-slate-800" placeholder="Berat (kg)" value={newStudent.current_weight} onChange={(e) => setNewStudent({ ...newStudent, current_weight: e.target.value })} />
+              <input type="number" className="px-3 py-2 rounded bg-slate-800" placeholder="Umur (tahun)" value={newStudent.age} onChange={(e) => setNewStudent({ ...newStudent, age: e.target.value })} />
+              <input type="number" step="0.1" className="px-3 py-2 rounded bg-slate-800" placeholder="Berat badan semasa (kg)" value={newStudent.current_weight} onChange={(e) => setNewStudent({ ...newStudent, current_weight: e.target.value })} />
               <select className="px-3 py-2 rounded bg-slate-800" value={newStudent.gender} onChange={(e) => setNewStudent({ ...newStudent, gender: e.target.value })}>
                 <option>Lelaki</option>
                 <option>Perempuan</option>
               </select>
-              <input className="px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama Ibu Bapa" value={newStudent.parent_name} onChange={(e) => setNewStudent({ ...newStudent, parent_name: e.target.value })} />
-              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. Tel Ibu Bapa (tanpa +60)" value={newStudent.parent_phone} onChange={(e) => setNewStudent({ ...newStudent, parent_phone: e.target.value.replace(/\D/g, '') })} />
+              <input className="px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama ibu bapa / penjaga" value={newStudent.parent_name} onChange={(e) => setNewStudent({ ...newStudent, parent_name: e.target.value })} />
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. tel ibu bapa tanpa +60 (cth: 123456789)" value={newStudent.parent_phone} onChange={(e) => setNewStudent({ ...newStudent, parent_phone: e.target.value.replace(/\D/g, '') })} />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setShowAddStudent(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-xs">Batal</button>
@@ -1101,20 +1151,20 @@ export default function App() {
           <form onSubmit={saveStudentEdit} className="w-full max-w-lg bg-slate-900 border border-emerald-700 rounded-2xl p-5 space-y-3">
             <h2 className="text-base font-bold text-amber-400">Edit Pesilat: {editingStudent.id}</h2>
             <div className="grid grid-cols-2 gap-2 text-xs">
-              <input className="col-span-2 px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama Penuh" value={editingStudent.full_name || ''} onChange={(e) => setEditingStudent({ ...editingStudent, full_name: e.target.value })} />
-              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. IC (tanpa -)" maxLength={12} value={editingStudent.ic_no || ''} onChange={(e) => setEditingStudent({ ...editingStudent, ic_no: e.target.value.replace(/\D/g, '') })} />
+              <input className="col-span-2 px-3 py-2 rounded bg-slate-800 uppercase" placeholder="Nama penuh pesilat" value={editingStudent.full_name || ''} onChange={(e) => setEditingStudent({ ...editingStudent, full_name: e.target.value })} />
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. IC 12 digit tanpa sengkang" maxLength={12} value={editingStudent.ic_no || ''} onChange={(e) => setEditingStudent({ ...editingStudent, ic_no: e.target.value.replace(/\D/g, '') })} />
               <select className="px-3 py-2 rounded bg-slate-800" value={editingStudent.branch_id || ''} onChange={(e) => setEditingStudent({ ...editingStudent, branch_id: e.target.value })}>
                 {visibleBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
-              <input type="number" className="px-3 py-2 rounded bg-slate-800" placeholder="Umur" value={editingStudent.age || ''} onChange={(e) => setEditingStudent({ ...editingStudent, age: e.target.value })} />
-              <input type="number" step="0.1" className="px-3 py-2 rounded bg-slate-800 border border-amber-500/60" placeholder="Berat Semasa (kg)" value={editingStudent.current_weight || ''} onChange={(e) => setEditingStudent({ ...editingStudent, current_weight: e.target.value })} />
+              <input type="number" className="px-3 py-2 rounded bg-slate-800" placeholder="Umur (tahun)" value={editingStudent.age || ''} onChange={(e) => setEditingStudent({ ...editingStudent, age: e.target.value })} />
+              <input type="number" step="0.1" className="px-3 py-2 rounded bg-slate-800 border border-amber-500/60" placeholder="Berat semasa (kg) — kemas kini sebelum kejohanan" value={editingStudent.current_weight || ''} onChange={(e) => setEditingStudent({ ...editingStudent, current_weight: e.target.value })} />
               <div className="col-span-2 px-3 py-2 rounded bg-slate-950 text-amber-300 font-semibold">
                 Kelas Berat: {getPersilatWeightClass(editingStudent.age, editingStudent.current_weight)}
               </div>
-              <input className="px-3 py-2 rounded bg-slate-800" placeholder="Sekolah" value={editingStudent.school || ''} onChange={(e) => setEditingStudent({ ...editingStudent, school: e.target.value })} />
-              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. Tel Pesilat" value={editingStudent.student_phone || ''} onChange={(e) => setEditingStudent({ ...editingStudent, student_phone: e.target.value })} />
-              <input className="px-3 py-2 rounded bg-slate-800" placeholder="Nama Ibu Bapa" value={editingStudent.parent_name || ''} onChange={(e) => setEditingStudent({ ...editingStudent, parent_name: e.target.value })} />
-              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. Tel Ibu Bapa" value={editingStudent.parent_phone || ''} onChange={(e) => setEditingStudent({ ...editingStudent, parent_phone: e.target.value })} />
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="Nama sekolah" value={editingStudent.school || ''} onChange={(e) => setEditingStudent({ ...editingStudent, school: e.target.value })} />
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. telefon pesilat (jika ada)" value={editingStudent.student_phone || ''} onChange={(e) => setEditingStudent({ ...editingStudent, student_phone: e.target.value })} />
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="Nama ibu bapa / penjaga" value={editingStudent.parent_name || ''} onChange={(e) => setEditingStudent({ ...editingStudent, parent_name: e.target.value })} />
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="No. telefon ibu bapa / penjaga" value={editingStudent.parent_phone || ''} onChange={(e) => setEditingStudent({ ...editingStudent, parent_phone: e.target.value })} />
               <select className="px-3 py-2 rounded bg-slate-800" value={editingStudent.class_tier} onChange={(e) => setEditingStudent({ ...editingStudent, class_tier: e.target.value })}>
                 <option>Beginner</option>
                 <option>Intermediate</option>
@@ -1129,7 +1179,7 @@ export default function App() {
                 <option>Lelaki</option>
                 <option>Perempuan</option>
               </select>
-              <input className="px-3 py-2 rounded bg-slate-800" placeholder="Alamat" value={editingStudent.address || ''} onChange={(e) => setEditingStudent({ ...editingStudent, address: e.target.value })} />
+              <input className="px-3 py-2 rounded bg-slate-800" placeholder="Alamat rumah penuh" value={editingStudent.address || ''} onChange={(e) => setEditingStudent({ ...editingStudent, address: e.target.value })} />
               <div className="col-span-2 bg-slate-950 rounded-lg p-3 space-y-2">
                 <p className="text-[11px] font-bold text-amber-300">Markah Penilaian (0-100) — Skor Keseluruhan dikira automatik</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -1143,7 +1193,7 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <textarea rows={2} className="col-span-2 px-3 py-2 rounded bg-slate-800" placeholder="Kelemahan / Sebab" value={editingStudent.sebab || ''} onChange={(e) => setEditingStudent({ ...editingStudent, sebab: e.target.value })} />
+              <textarea rows={2} className="col-span-2 px-3 py-2 rounded bg-slate-800" placeholder="Kelemahan pesilat / sebab" value={editingStudent.sebab || ''} onChange={(e) => setEditingStudent({ ...editingStudent, sebab: e.target.value })} />
               <textarea rows={2} className="col-span-2 px-3 py-2 rounded bg-slate-800" placeholder="Penambahbaikan / Cadangan latihan" value={editingStudent.penambahbaikan || ''} onChange={(e) => setEditingStudent({ ...editingStudent, penambahbaikan: e.target.value })} />
             </div>
             <div className="flex justify-end gap-2 pt-2">

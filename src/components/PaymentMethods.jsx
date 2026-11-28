@@ -112,7 +112,7 @@ export default function PaymentMethods({ info, items, cartTotal, session, onFpx,
           <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={pick}
             className="block w-full text-[11px] text-slate-300 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-emerald-700 file:text-white" />
           {file && <p className="text-[11px] text-emerald-300">{file.name} ({(file.size / 1024).toFixed(0)} KB)</p>}
-          <input className="w-full px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="No. rujukan transaksi (pilihan)" value={ref} onChange={(e) => setRef(e.target.value)} />
+          <input className="w-full px-3 py-2 rounded-lg bg-slate-800 text-xs" placeholder="No. rujukan transaksi dari resit bank (pilihan)" value={ref} onChange={(e) => setRef(e.target.value)} />
           <label className="flex items-start gap-2 text-[11px] text-slate-300">
             <input type="checkbox" className="mt-0.5" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
             Saya mengesahkan telah membayar {rm(cartTotal)} dan resit yang dimuat naik adalah sah.

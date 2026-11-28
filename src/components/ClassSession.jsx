@@ -80,7 +80,7 @@ function Row({ s, status, me, weightClass, onSet, reload }) {
               <select className={`${inp} flex-1`} value={note.type} onChange={(e) => setNote({ ...note, type: e.target.value })}>
                 {['Sparring', 'Seni', 'Fizikal', 'Teknik', 'Ujian'].map((t) => <option key={t}>{t}</option>)}
               </select>
-              <input type="number" min="0" max="10" className={`${inp} w-24`} placeholder="Skor 0-10" value={note.score} onChange={(e) => setNote({ ...note, score: e.target.value })} />
+              <input type="number" min="0" max="10" className={`${inp} w-24`} placeholder="Skor 0-10 (cth: 8)" value={note.score} onChange={(e) => setNote({ ...note, score: e.target.value })} />
             </div>
             <textarea rows={2} className={`${inp} w-full`} placeholder="Catatan latihan / maklum balas" value={note.text} onChange={(e) => setNote({ ...note, text: e.target.value })} />
             <button disabled={busy} onClick={saveNote} className="px-3 py-2 rounded-lg bg-amber-500 text-slate-950 font-semibold disabled:opacity-50">Simpan Catatan</button>
@@ -151,11 +151,11 @@ export default function ClassSession({ students, me, weightClass, reload }) {
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-bold text-amber-400">Kelas: Kehadiran, Berat & Catatan Latihan</h2>
-        <input type="date" className={inp} value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+        <span className="text-[11px] text-slate-400 self-center">Tarikh kelas:</span><input type="date" title="Tarikh kelas" className={inp} value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
       </div>
       <p className="text-[11px] text-slate-300">Hadir {c('Hadir')} • Lewat {c('Lewat')} • Tidak Hadir {c('Tidak Hadir')} • Belum ditanda {students.length - Object.keys(att).length}</p>
       <div className="flex gap-2">
-        <input className={`${inp} flex-1`} placeholder="Cari pesilat" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className={`${inp} flex-1`} placeholder="Cari pesilat (nama / ID)" value={q} onChange={(e) => setQ(e.target.value)} />
         <button onClick={all} className="px-3 py-2 rounded-lg bg-emerald-700 text-xs font-semibold">Semua yang belum = Hadir</button>
         <button onClick={clearAll} className="px-3 py-2 rounded-lg bg-slate-800 text-xs font-semibold text-red-400">Kosongkan</button>
       </div>
