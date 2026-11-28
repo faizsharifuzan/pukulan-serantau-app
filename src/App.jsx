@@ -20,6 +20,7 @@ import { MyPayslips } from './components/Payslips';
 import ClassSession from './components/ClassSession';
 import StudentHistory from './components/StudentHistory';
 import BengkungGuide from './components/BengkungGuide';
+import PerformanceTable from './components/PerformanceTable';
 import AIChat from './components/AIChat';
 
 const SCORE_KEYS = [
@@ -741,6 +742,8 @@ export default function App() {
                 </div>}
               </div>
             )}
+
+            {actingAsStaff && !isAssistant && <PerformanceTable branchId={selectedBranch} branchName={branchNameById} tournaments={tournaments} isAdmin={isAdmin} reload={() => loadAllData(session.user.id)} />}
 
             {!actingAsStaff && unclaimedStudents.length > 0 && (
               <div className="bg-emerald-950/50 border border-emerald-800 p-4 rounded-xl space-y-2">
