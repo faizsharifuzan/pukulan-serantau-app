@@ -104,20 +104,36 @@ export default function PublicSite({ onLogin, onRegister }) {
               {rules.syarat_khas && <div className="bg-slate-950 rounded-lg p-3"><p className="font-bold text-amber-300 mb-1">Syarat Khas</p><p className="whitespace-pre-line">{rules.syarat_khas}</p></div>}
             </div>
           )}
-          {org.length > 0 && (
-            <div>
-              <p className="text-xs font-bold text-amber-300 mb-2 flex items-center gap-1.5"><Users className="w-4 h-4" />Barisan Pengajar & Organisasi</p>
-              <div className="grid sm:grid-cols-3 gap-2">
-                {[...org].sort((a, b) => (a.level ?? 9) - (b.level ?? 9)).map((o, i) => (
-                  <div key={i} className="bg-slate-950 rounded-lg p-2.5 text-xs">
-                    <p className="font-bold text-white">{o.name}</p>
-                    <p className="text-emerald-300">{o.role}</p>
-                    {o.branch && <p className="text-slate-500">{o.branch}</p>}
-                  </div>
-                ))}
+          {org.length > 0 && (() => {
+            const lv = (n) => org.filter((o) => (o.level ?? 2) === n);
+            const Box = ({ o, small }) => (
+              <div className={`bg-slate-950 border border-amber-500/30 rounded-lg ${small ? 'p-2' : 'p-3'} text-center`}>
+                <p className="text-[10px] text-emerald-400 font-semibold uppercase">{o.role}</p>
+                <p className={`${small ? 'text-xs' : 'text-sm'} font-bold text-white`}>{o.name}</p>
+                {o.branch && <p className="text-[10px] text-slate-400">{o.branch}</p>}
               </div>
-            </div>
-          )}
+            );
+            const gurus = lv(2);
+            const orphan = lv(3).filter((o) => !gurus.some((g) => g.name === o.under));
+            return (
+              <div>
+                <p className="text-xs font-bold text-amber-300 mb-2 flex items-center gap-1.5"><Users className="w-4 h-4" />Carta Organisasi</p>
+                <div className="space-y-3">
+                  <div className="max-w-xs mx-auto">{lv(0).map((o, i) => <Box key={i} o={o} />)}</div>
+                  <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">{lv(1).map((o, i) => <Box key={i} o={o} />)}</div>
+                  <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3">
+                    {gurus.map((g, i) => (
+                      <div key={i} className="space-y-1.5">
+                        <Box o={g} />
+                        {lv(3).filter((o) => o.under === g.name).map((o, k) => <Box key={k} o={o} small />)}
+                      </div>
+                    ))}
+                  </div>
+                  {orphan.length > 0 && <div className="grid sm:grid-cols-3 gap-2">{orphan.map((o, k) => <Box key={k} o={o} small />)}</div>}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </Section>
 
