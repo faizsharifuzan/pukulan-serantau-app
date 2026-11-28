@@ -153,7 +153,7 @@ export function FinanceExport({ payments, profiles, students, branches, allFeeTy
   );
 }
 
-export function FeeExemptions({ students, profiles, branches, allFeeTypes, branchFees, branchName, run }) {
+export function FeeExemptions({ isAdmin, students, profiles, branches, allFeeTypes, branchFees, branchName, run }) {
   const [q, setQ] = useState('');
   const [bf, setBf] = useState('');
   const [onlyEx, setOnlyEx] = useState(false);
@@ -165,8 +165,8 @@ export function FeeExemptions({ students, profiles, branches, allFeeTypes, branc
     return c;
   };
   const memberNo = (s) => profiles.find((p) => p.id === s.student_user_id)?.member_no || profiles.find((p) => p.id === s.parent_id)?.member_no || '';
-  const isCoach = kind === 'coaches';
-  const source = isCoach ? profiles.filter((p) => p.role === 'coach').map((p) => ({ ...p, short_name: p.full_name })) : students;
+  const isCoach = kind !== 'students';
+  const source = isCoach ? profiles.filter((p) => p.role === (kind === 'assistants' ? 'assistant' : 'coach')).map((p) => ({ ...p, short_name: p.full_name })) : students;
   const list = source.filter((s) => {
     const t = q.trim().toLowerCase();
     return (!bf || s.branch_id === bf) && (!onlyEx || s.fee_exempt || s.fee_only)
@@ -178,7 +178,7 @@ export function FeeExemptions({ students, profiles, branches, allFeeTypes, branc
       <h2 className="text-sm font-bold text-amber-400">Pengecualian Yuran</h2>
       <p className="text-[11px] text-slate-400">Pesilat yang dikecualikan atau dihadkan jenis yuran masih ada ID ahli dan masih boleh membeli merchandise dan menyertai kejohanan seperti biasa.</p>
       <div className="flex gap-2">
-        {[['students', 'Pesilat'], ['coaches', 'Jurulatih']].map(([k, l]) => (
+        {[['students', 'Pesilat'], ['assistants', 'Pembantu Jurulatih'], ...(isAdmin ? [['coaches', 'Jurulatih']] : [])].map(([k, l]) => (
           <button key={k} onClick={() => setKind(k)} className={`${btn} ${kind === k ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>{l}</button>
         ))}
       </div>
@@ -199,7 +199,7 @@ export function FeeExemptions({ students, profiles, branches, allFeeTypes, branc
           return (
             <div key={s.id} className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-2 text-xs">
               <div className="flex flex-wrap justify-between gap-2">
-                <p className="font-semibold text-white">{s.full_name || s.short_name} <span className="font-normal text-slate-500">• {isCoach ? 'Jurulatih' : s.id} • {branchName[s.branch_id] || '-'}{(isCoach ? s.member_no : memberNo(s)) ? ` • ${isCoach ? s.member_no : memberNo(s)}` : ''}</span></p>
+                <p className="font-semibold text-white">{s.full_name || s.short_name} <span className="font-normal text-slate-500">• {isCoach ? (kind === 'assistants' ? 'Pembantu' : 'Jurulatih') : s.id} • {branchName[s.branch_id] || '-'}{(isCoach ? s.member_no : memberNo(s)) ? ` • ${isCoach ? s.member_no : memberNo(s)}` : ''}</span></p>
                 <label className="flex items-center gap-1.5 text-amber-300">
                   <input type="checkbox" checked={!!s.fee_exempt} onChange={(e) => save(s, { fee_exempt: e.target.checked })} />Dikecualikan semua yuran
                 </label>
