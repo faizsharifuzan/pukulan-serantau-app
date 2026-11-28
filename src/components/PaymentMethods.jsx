@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Landmark, QrCode, CreditCard, Copy, Check, FileText } from 'lucide-react';
+import { Landmark, QrCode, Copy, Check, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { rm } from './PaymentUI';
 
@@ -16,8 +16,7 @@ function BankLogo({ url, name }) {
   );
 }
 
-export default function PaymentMethods({ info, items, cartTotal, session, onFpx, onDone, busy, setBusy }) {
-  const fpxOn = !!info?.fpx_enabled;
+export default function PaymentMethods({ info, payeeName, items, cartTotal, session, onFpx, onDone, busy, setBusy }) {
   const [method, setMethod] = useState('bank_transfer');
   const [file, setFile] = useState(null);
   const [ref, setRef] = useState('');
@@ -66,26 +65,19 @@ export default function PaymentMethods({ info, items, cartTotal, session, onFpx,
     <div className="space-y-3 pt-2">
       <p className="text-xs font-bold text-amber-400">Pilih Kaedah Pembayaran</p>
       <div className="flex gap-2">
-        {tab('fpx', fpxOn ? 'FPX Online' : 'FPX (belum aktif)', CreditCard, !fpxOn)}
         {tab('bank_transfer', 'Direct Transfer', Landmark, false)}
         {tab('duitnow_qr', 'DuitNow QR', QrCode, false)}
       </div>
 
-      {method === 'fpx' && fpxOn && (
-        <button disabled={busy} onClick={onFpx} className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 font-bold text-xs">
-          {busy ? 'Memproses...' : `Bayar ${rm(cartTotal)} melalui FPX`}
-        </button>
-      )}
-
       {method === 'bank_transfer' && (
         <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
-          <p className="text-[11px] text-slate-400">Pindahkan <b className="text-amber-300">{rm(cartTotal)}</b> ke akaun kelab:</p>
+          <p className="text-[11px] text-slate-400">Pindahkan <b className="text-amber-300">{rm(cartTotal)}</b> ke akaun <b>Cawangan {payeeName}</b>:</p>
           <div className="flex items-center gap-3">
             <BankLogo url={info?.bank_logo_url} name={info?.bank_name} />
             <div className="flex-1">
               <p className="text-sm font-bold text-white">{info?.bank_name || 'Bank'}</p>
               <p className="text-[11px] text-slate-300">{info?.account_name}</p>
-              <p className="text-lg font-mono font-bold text-emerald-400 tracking-wider">{info?.account_no}</p>
+              <p className="text-lg font-mono font-bold text-emerald-400 tracking-wider">{info?.account_no || 'Akaun belum ditetapkan oleh cawangan'}</p>
             </div>
             <button onClick={copy} className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-[11px] flex items-center gap-1">
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />} {copied ? 'Disalin' : 'Salin'}
@@ -100,13 +92,14 @@ export default function PaymentMethods({ info, items, cartTotal, session, onFpx,
           {info?.qr_url ? (
             <img src={info.qr_url} alt="DuitNow QR" className="mx-auto max-h-72 rounded-lg bg-white p-2" />
           ) : (
-            <p className="text-xs text-amber-300 py-6">Kod QR belum dimuat naik oleh admin. Sila guna Direct Transfer.</p>
+            <p className="text-xs text-amber-300 py-6">Kod QR cawangan ini belum dimuat naik. Sila guna Direct Transfer.</p>
           )}
-          {info?.account_name && <p className="text-[11px] text-slate-300">{info.account_name}</p>}
+          {info?.account_name && <p className="text-[11px] text-slate-300">{info.account_name} • Cawangan {payeeName}</p>}
         </div>
       )}
 
-      {method !== 'fpx' && (
+      {(
+
         <div className="bg-slate-950 border border-amber-500/30 rounded-xl p-3 space-y-2">
           <p className="text-xs font-bold text-amber-300 flex items-center gap-1.5"><FileText className="w-4 h-4" /> Muat Naik Resit (wajib)</p>
           <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={pick}
@@ -120,7 +113,7 @@ export default function PaymentMethods({ info, items, cartTotal, session, onFpx,
           <button disabled={busy} onClick={submitManual} className="w-full py-2.5 rounded-lg bg-amber-500 disabled:opacity-50 text-slate-950 font-bold text-xs">
             {busy ? 'Menghantar...' : 'Hantar Resit & Sahkan Pembayaran'}
           </button>
-          <p className="text-[10px] text-slate-500">Pembayaran disahkan oleh jurulatih/admin cawangan anda selepas semakan resit.</p>
+          <p className="text-[10px] text-slate-500">Pembayaran disahkan oleh jurulatih/admin Cawangan {payeeName} selepas semakan resit.</p>
         </div>
       )}
     </div>

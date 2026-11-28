@@ -57,6 +57,8 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [payments, setPayments] = useState([]);
   const [cart, setCart] = useState([]);
+  const [branchPay, setBranchPay] = useState({});
+  const [payee, setPayee] = useState(null);
   const [feeTypes, setFeeTypes] = useState([]);
   const [branchFees, setBranchFees] = useState([]);
   const [refunds, setRefunds] = useState([]);
@@ -120,7 +122,8 @@ export default function App() {
       { data: fees },
       { data: claimable },
       { data: bfees },
-      { data: refs }
+      { data: refs },
+      { data: bps }
     ] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase.from('students').select('*').order('id'),
@@ -133,6 +136,7 @@ export default function App() {
       supabase.rpc('list_claimable_students'),
       supabase.from('branch_fees').select('*'),
       supabase.from('payment_refunds').select('*').order('created_at', { ascending: false }),
+      supabase.from('branch_payment_settings').select('*'),
     ]);
 
     const currentProf = prof || { id: userId, role: 'parent', full_name: 'Pengguna' };
@@ -145,6 +149,7 @@ export default function App() {
     setFeeTypes(fees || []);
     setBranchFees(bfees || []);
     setRefunds(refs || []);
+    setBranchPay(Object.fromEntries((bps || []).map((r) => [r.branch_id, r])));
     if (currentProf.role === 'coach' && currentProf.branch_id) setSelectedBranch(currentProf.branch_id);
     setClaimables(claimable || []);
 
@@ -407,7 +412,17 @@ export default function App() {
     loadAllData(session.user.id);
   }
 
-  const cartTotal = useMemo(() => cart.reduce((sum, i) => sum + Number(i.amount || 0), 0), [cart]);
+  const hqId = branches.find((b) => b.is_hq)?.id || null;
+  const payeeOf = (c) => {
+    if (c.type === 'fee') return students.find((x) => x.id === c.student_id)?.branch_id || hqId;
+    if (c.type === 'tournament') return tournaments.find((x) => x.id === c.tournament_id)?.branch_id || hqId;
+    return products.find((x) => x.id === c.product_id)?.branch_id || profile?.branch_id || hqId;
+  };
+  const payeeIds = [...new Set(cart.map(payeeOf))];
+  const activePayee = payeeIds.includes(payee) ? payee : payeeIds[0] || null;
+  const groupCart = cart.filter((c) => payeeOf(c) === activePayee);
+  const cartTotal = useMemo(() => groupCart.reduce((sum, i) => sum + Number(i.amount || 0), 0), [cart, activePayee, students, tournaments, products]);
+  const branchLabel = (id) => branches.find((b) => b.id === id)?.name || 'Cawangan';
 
   function addToCart(item) {
     setCart((prev) => {
@@ -425,7 +440,7 @@ export default function App() {
     });
   }
   const removeFromCart = (cartId) => setCart((prev) => prev.filter((c) => c.cartId !== cartId));
-  const orderItems = () => cart.map((c) => ({
+  const orderItems = () => groupCart.map((c) => ({
     type: c.type, student_id: c.student_id, fee_code: c.fee_code,
     tournament_id: c.tournament_id, product_id: c.product_id, qty: c.qty,
     ...(c.type === 'product' && c.remark?.trim() ? { remark: c.remark.trim().slice(0, 200) } : {}),
@@ -587,6 +602,7 @@ export default function App() {
   const activeFeeTypes = feeTypes.filter((f) => f.active);
   const feesForStudent = (st) => {
     const list = [];
+    if (st.fee_exempt) return list;
     activeFeeTypes.forEach((f) => {
       const o = branchFees.find((b) => b.branch_id === st.branch_id && b.fee_code === f.code);
       if (o && !o.active) return;
@@ -594,7 +610,7 @@ export default function App() {
     });
     branchFees.filter((b) => b.branch_id === st.branch_id && b.active && !feeTypes.some((f) => f.code === b.fee_code))
       .forEach((b) => list.push({ code: b.fee_code, label: b.label || b.fee_code, amount: Number(b.amount) }));
-    return list;
+    return st.fee_only ? list.filter((f) => st.fee_only.includes(f.code)) : list;
   };
   const branchFilteredStudents = selectedBranch === 'ALL'
     ? students
@@ -629,7 +645,7 @@ export default function App() {
           <div>
             <h1 className="text-sm sm:text-base font-bold text-amber-400 leading-tight">AKADEMI PUKULAN SERANTAU</h1>
             <p className="text-[11px] text-emerald-200">
-              {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : profile?.role}</span>
+              {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : (profile?.role === 'coach' && profile?.is_branch_admin ? 'ADMIN CAWANGAN' : profile?.role)}</span>
               {profile?.member_no && <> • <span className="font-mono text-amber-300">{profile.member_no}</span></>}
             </p>
           </div>
@@ -897,6 +913,7 @@ export default function App() {
                 {myStudents.slice(0, 12).map((c) => (
                   <div key={c.id} className="bg-slate-950 border border-slate-800 p-3 rounded-lg space-y-2">
                     <p className="text-xs font-bold">{c.full_name || c.short_name} <span className="font-normal text-slate-500">• {branchNameById[c.branch_id] || '-'}</span></p>
+                    {c.fee_exempt && <p className="text-[11px] text-emerald-300">Dikecualikan daripada yuran. Anda masih boleh membeli merchandise.</p>}
                     {feesForStudent(c).map((fee) => (
                       <div key={fee.code} className="flex items-center justify-between gap-2 text-xs">
                         <span>{fee.label} <b className="text-emerald-400">{rm(fee.amount)}</b></span>
@@ -980,14 +997,26 @@ export default function App() {
                     </div>
                   ))}
                   <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                    <span className="font-bold">Jumlah Keseluruhan</span>
+                    <span className="font-bold">{payeeIds.length > 1 ? `Jumlah untuk ${branchLabel(activePayee)}` : 'Jumlah Keseluruhan'}</span>
                     <span className="text-xl font-bold text-amber-400">RM{cartTotal.toFixed(2)}</span>
                   </div>
                   <p className="text-[10px] text-slate-500">Jumlah muktamad dikira & disahkan oleh pelayan semasa pembayaran.</p>
+                  {payeeIds.length > 1 && (
+                    <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-2 text-[11px] text-amber-200 space-y-1.5">
+                      <p>Troli anda mengandungi item untuk <b>cawangan berbeza</b>. Setiap cawangan mempunyai akaun bank sendiri, jadi bayar satu cawangan pada satu masa:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {payeeIds.map((id) => (
+                          <button key={id} onClick={() => setPayee(id)} className={`px-2.5 py-1 rounded-lg font-semibold border ${id === activePayee ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-900 border-slate-700 text-slate-200'}`}>
+                            {branchLabel(id)} ({cart.filter((c) => payeeOf(c) === id).length})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <PaymentMethods
-                    info={academyInfo.payment} items={orderItems()} cartTotal={cartTotal} session={session}
+                    info={branchPay[activePayee] || (branchPay[hqId]) || {}} payeeName={branchLabel(activePayee)} items={orderItems()} cartTotal={cartTotal} session={session}
                     busy={payBusy} setBusy={setPayBusy} onFpx={checkoutFPX}
-                    onDone={(d) => { setCart([]); alert(`Resit dihantar (${d.reference_no}). Menunggu pengesahan jurulatih/admin.`); loadAllData(session.user.id); }}
+                    onDone={(d) => { setCart((prev) => prev.filter((c) => payeeOf(c) !== activePayee)); alert(`Resit dihantar (${d.reference_no}). Menunggu pengesahan jurulatih/admin.`); loadAllData(session.user.id); }}
                   />
                 </>
               )}
@@ -1077,7 +1106,7 @@ export default function App() {
               students={students} tournaments={tournaments} products={products}
               feeTypes={activeFeeTypes} allFeeTypes={feeTypes} branchFees={branchFees}
               payments={payments} refunds={refunds} academyInfo={academyInfo}
-              branchName={branchNameById} reload={() => loadAllData(session.user.id)} upload={uploadClubImage}
+              branchName={branchNameById} branchPay={branchPay} isBranchAdmin={profile?.role === 'coach' && !!profile?.is_branch_admin} reload={() => loadAllData(session.user.id)} upload={uploadClubImage}
             />
           </div>
         )}

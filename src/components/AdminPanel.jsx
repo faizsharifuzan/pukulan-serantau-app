@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { StatusBadge, STATUS_LABEL, METHOD_LABEL, RefundLines, openReceipt, rm } from './PaymentUI';
 import { PayslipAdmin } from './Payslips';
 import { Field, ImageUploader, imagesOf } from './Media';
+import { FinanceExport, FeeExemptions } from './FinanceExport';
 
 const inp = 'px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs w-full';
 const btn = 'px-3 py-1.5 rounded-lg text-xs font-semibold';
@@ -27,12 +28,14 @@ function useRun(reload) {
 }
 
 /* ---------------- USERS ---------------- */
-function UserRow({ u, me, isAdmin, branches, branchName, run }) {
+function UserRow({ u, me, isAdmin, isBA, branches, branchName, run }) {
   const [edit, setEdit] = useState(false);
   const [f, setF] = useState(u);
   const isMe = u.id === me;
   const privileged = u.role === 'admin' || u.role === 'coach';
-  const canTouch = isAdmin || (!privileged && !isMe);
+  const baTarget = isBA && !isMe && ['parent', 'student', 'coach'].includes(u.role);
+  const canTouch = isAdmin || baTarget || (!privileged && !isMe);
+  const canRole = isAdmin || baTarget;
   const save = async () => {
     const ic = (f.ic_no || '').replace(/\D/g, '');
     if (ic && ic.length !== 12) return alert('No. IC mesti 12 digit.');
@@ -62,16 +65,24 @@ function UserRow({ u, me, isAdmin, branches, branchName, run }) {
           <p className="text-[11px] text-slate-400">{u.phone || '-'} • IC: {u.ic_no || '-'} • {branchName[u.branch_id] || 'Tiada Cawangan'}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && u.requested_role === 'coach' && u.role !== 'coach' && (
+          {canRole && u.requested_role === 'coach' && u.role !== 'coach' && (
             <button onClick={() => setRole('coach')} className={`${btn} bg-amber-500 text-slate-950`}>Lulus Jurulatih</button>
           )}
-          {isAdmin ? (
+          {isAdmin && u.role === 'coach' && u.branch_id && (
+            <button onClick={() => run(() => supabase.from('profiles').update({ is_branch_admin: !u.is_branch_admin }).eq('id', u.id))}
+              className={`${btn} ${u.is_branch_admin ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'}`}
+              title="Admin Cawangan: akses seperti Master Admin tetapi untuk cawangan ini sahaja (1 orang setiap cawangan)">
+              {u.is_branch_admin ? '★ Admin Cawangan (Batal)' : 'Lantik Admin Cawangan'}
+            </button>
+          )}
+          {!isAdmin && u.is_branch_admin && <span className="px-2 py-1 rounded bg-amber-500 text-slate-950 font-bold text-[10px]">ADMIN CAWANGAN</span>}
+          {canRole ? (
             <select className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-semibold text-emerald-300 disabled:opacity-50"
               value={u.role} disabled={isMe} onChange={(e) => setRole(e.target.value)}>
               <option value="parent">Ibu Bapa</option>
               <option value="student">Pesilat</option>
               <option value="coach">Jurulatih</option>
-              <option value="admin">Admin</option>
+              {isAdmin && <option value="admin">Admin</option>}
             </select>
           ) : (
             <span className="px-2 py-1 rounded bg-slate-800 text-emerald-300 font-semibold uppercase text-[10px]">{u.role}</span>
@@ -89,7 +100,7 @@ function UserRow({ u, me, isAdmin, branches, branchName, run }) {
           {canTouch && !isMe && (
             <>
               <button onClick={() => setActive(u.is_active === false)} className={`${btn} bg-slate-800 text-slate-200`}>{u.is_active === false ? 'Aktifkan' : 'Nyahaktif'}</button>
-              {u.role !== 'admin' && <button onClick={del} className="p-1.5 rounded-lg bg-red-950 text-red-300 hover:bg-red-900" title="Padam"><Trash2 className="w-4 h-4" /></button>}
+              {isAdmin && u.role !== 'admin' && <button onClick={del} className="p-1.5 rounded-lg bg-red-950 text-red-300 hover:bg-red-900" title="Padam"><Trash2 className="w-4 h-4" /></button>}
             </>
           )}
         </div>
@@ -112,7 +123,7 @@ function UserRow({ u, me, isAdmin, branches, branchName, run }) {
   );
 }
 
-function UsersSection({ profiles, me, isAdmin, branches, branchName, run }) {
+function UsersSection({ profiles, me, isAdmin, isBA, branches, branchName, run }) {
   const [q, setQ] = useState('');
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -123,8 +134,8 @@ function UsersSection({ profiles, me, isAdmin, branches, branchName, run }) {
   const review = (id, ok) => run(() => supabase.rpc('review_membership', { p_user: id, p_approve: ok }));
   return (
     <div className={card}>
-      <h2 className="text-sm font-bold text-amber-400">Pengguna {isAdmin ? '& Peranan' : '(cawangan anda)'} ({profiles.length})</h2>
-      {isAdmin && pendingCoach.length > 0 && (
+      <h2 className="text-sm font-bold text-amber-400">Pengguna {isAdmin || isBA ? '& Peranan' : ''}{isAdmin ? '' : ' (cawangan anda)'} ({profiles.length})</h2>
+      {(isAdmin || isBA) && pendingCoach.length > 0 && (
         <p className="text-[11px] bg-amber-500/10 border border-amber-500/40 text-amber-300 rounded-lg p-2">{pendingCoach.length} permohonan jurulatih menunggu kelulusan.</p>
       )}
       {pendingMem.length > 0 && (
@@ -318,7 +329,7 @@ function TournamentForm({ init, onSave, onCancel, upload, label, branches, isAdm
     </div>
   );
 }
-function Roster({ t, students }) {
+function Roster({ t, students, canFinance }) {
   const [rows, setRows] = useState(null);
   const load = () => supabase.from('tournament_rsvps').select('*').eq('tournament_id', t.id).then(({ data }) => setRows(data || []));
   useEffect(() => { load(); }, []); // eslint-disable-line
@@ -329,7 +340,7 @@ function Roster({ t, students }) {
     <div className="bg-slate-900 rounded-lg p-2 space-y-1.5 text-[11px]">
       {(rows || []).map((r) => (
         <div key={r.id} className="flex flex-wrap items-center justify-between gap-2">
-          <span>{nm(r.student_id)} • {r.rsvp_status} • <b className={r.payment_status === 'paid' ? 'text-emerald-400' : 'text-amber-300'}>{r.payment_status}</b></span>
+          <span>{nm(r.student_id)} • {r.rsvp_status} • {canFinance && <b className={r.payment_status === 'paid' ? 'text-emerald-400' : 'text-amber-300'}>{r.payment_status}</b>}</span>
           <span className="flex gap-1.5">
             <button onClick={async () => { await supabase.from('tournament_rsvps').update({ coach_override: !r.coach_override }).eq('id', r.id); load(); }} className={`${btn} ${r.coach_override ? 'bg-amber-500 text-slate-950' : 'bg-slate-800'}`}>Kebenaran khas {r.coach_override ? '✓' : ''}</button>
             <button onClick={async () => { if (confirm('Buang peserta?')) { await supabase.from('tournament_rsvps').delete().eq('id', r.id); load(); } }} className="p-1 rounded bg-red-950 text-red-300"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -347,7 +358,7 @@ function Roster({ t, students }) {
     </div>
   );
 }
-function TournamentsSection({ tournaments, run, me, upload, branches, branchName, isAdmin, myBranch, students }) {
+function TournamentsSection({ canFinance, tournaments, run, me, upload, branches, branchName, isAdmin, myBranch, students }) {
   const [editId, setEditId] = useState(null);
   const [rosterId, setRosterId] = useState(null);
   const blank = { title: '', event_type: 'Open Friendly Sparring', event_date: '', location: '', entry_fee: 30, poster_url: '', images: [], description: '', branch_id: null };
@@ -384,7 +395,7 @@ function TournamentsSection({ tournaments, run, me, upload, branches, branchName
                 )}
               </div>
             )}
-            {rosterId === t.id && <Roster t={t} students={students} />}
+            {rosterId === t.id && <Roster t={t} students={students} canFinance={canFinance} />}
           </div>
         ))}
       </div>
@@ -582,11 +593,17 @@ function BranchesSection({ branches, run, isAdmin, myBranch }) {
 }
 
 /* ---------------- SETTINGS (admin): payment info, about, org chart, rules ---------------- */
-function PaymentSettings({ info, run, upload }) {
-  const [f, setF] = useState({ bank_name: '', account_no: '', account_name: '', bank_logo_url: null, qr_url: null, fpx_enabled: false, ...info });
+function PaymentSettings({ branchPay, branches, isAdmin, myBranch, run, upload }) {
+  const list = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
+  const [bid, setBid] = useState(list[0]?.id || '');
+  if (!bid) return <div className={card}><p className="text-xs text-slate-400">Cawangan belum ditetapkan.</p></div>;
+  return <PaymentSettingsForm key={bid} bid={bid} setBid={setBid} list={list} info={branchPay[bid] || {}} run={run} upload={upload} />;
+}
+function PaymentSettingsForm({ bid, setBid, list, info, run, upload }) {
+  const [f, setF] = useState({ bank_name: '', account_no: '', account_name: '', bank_logo_url: null, qr_url: null, ...info });
   const img = (key, label, folder) => (
     <div className="space-y-1">
-      <p className="text-[11px] text-slate-400">{label}</p>
+      <p className="text-[11px] font-semibold text-slate-300">{label}</p>
       {f[key] && <img src={f[key]} alt={label} className="h-24 w-auto rounded bg-white p-1 object-contain" />}
       <div className="flex gap-2">
         <label className={`${btn} bg-slate-800 cursor-pointer flex items-center gap-1.5`}>
@@ -602,24 +619,31 @@ function PaymentSettings({ info, run, upload }) {
   );
   return (
     <div className={card}>
-      <h2 className="text-sm font-bold text-amber-400">Tetapan Pembayaran Kelab</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-bold text-amber-400">Akaun Bank &amp; QR Cawangan</h2>
+        {list.length > 1 && (
+          <select className={inp + ' !w-auto'} value={bid} onChange={(e) => setBid(e.target.value)}>
+            {list.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        )}
+      </div>
+      <p className="text-[11px] text-slate-400">Semua bayaran (yuran, kejohanan, merchandise) pesilat cawangan ini akan masuk ke akaun di bawah, dan disahkan oleh jurulatih/admin cawangan ini. Kejohanan "Semua Cawangan" yang dibuat admin masuk ke akaun Cawangan Pusat (HQ).</p>
       <div className="grid sm:grid-cols-3 gap-2">
-        <input className={inp} placeholder="Nama bank" value={f.bank_name} onChange={(e) => setF({ ...f, bank_name: e.target.value })} />
-        <input className={inp} placeholder="No. akaun" value={f.account_no} onChange={(e) => setF({ ...f, account_no: e.target.value.replace(/[^0-9]/g, '') })} />
-        <input className={`${inp} uppercase`} placeholder="Nama akaun" value={f.account_name} onChange={(e) => setF({ ...f, account_name: e.target.value })} />
+        <Field label="Nama bank" hint="Cth: Bank Rakyat"><input className={inp} placeholder="Nama bank" value={f.bank_name || ''} onChange={(e) => setF({ ...f, bank_name: e.target.value })} /></Field>
+        <Field label="No. akaun" hint="Nombor sahaja, tanpa sengkang"><input className={inp} placeholder="Cth: 1102427345" value={f.account_no || ''} onChange={(e) => setF({ ...f, account_no: e.target.value.replace(/[^0-9]/g, '') })} /></Field>
+        <Field label="Nama pemegang akaun" hint="Seperti dalam buku bank"><input className={`${inp} uppercase`} placeholder="Nama pemegang akaun" value={f.account_name || ''} onChange={(e) => setF({ ...f, account_name: e.target.value })} /></Field>
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
         {img('bank_logo_url', 'Logo bank (dipaparkan di sebelah no. akaun)', 'bank')}
-        {img('qr_url', 'Kod QR DuitNow (dipaparkan semasa pembayaran)', 'qr')}
+        {img('qr_url', 'Kod QR DuitNow cawangan ini (dipaparkan semasa pembayaran)', 'qr')}
       </div>
-      <label className="flex items-center gap-2 text-xs text-slate-300">
-        <input type="checkbox" checked={!!f.fpx_enabled} onChange={(e) => setF({ ...f, fpx_enabled: e.target.checked })} />
-        Aktifkan FPX Online (hidupkan hanya selepas Herepay siap diuji)
-      </label>
       <button className={`${btn} bg-emerald-600`} onClick={() => {
-        if (!f.account_no || !f.account_name.trim()) return alert('Isi no. akaun & nama akaun.');
-        run(() => supabase.from('academy_info').upsert({ key: 'payment', value: { ...f, account_name: f.account_name.trim().toUpperCase() }, updated_at: new Date().toISOString() }), 'Tetapan pembayaran disimpan.');
-      }}>Simpan Tetapan</button>
+        if (!f.account_no || !f.account_name?.trim()) return alert('Isi no. akaun & nama akaun.');
+        run(() => supabase.from('branch_payment_settings').upsert({
+          branch_id: bid, bank_name: f.bank_name || null, account_no: f.account_no, account_name: f.account_name.trim().toUpperCase(),
+          bank_logo_url: f.bank_logo_url || null, qr_url: f.qr_url || null, updated_at: new Date().toISOString(),
+        }), 'Tetapan bayaran cawangan disimpan.');
+      }}>Simpan Tetapan Cawangan</button>
     </div>
   );
 }
@@ -671,33 +695,38 @@ function AcademyEditor({ academyInfo, run }) {
 /* ---------------- SHELL ---------------- */
 export default function AdminPanel({
   me, isAdmin, myBranch, profiles, branches, students, tournaments, products, feeTypes, allFeeTypes, branchFees,
-  payments, refunds, academyInfo, branchName, reload, upload,
+  payments, refunds, academyInfo, branchName, reload, upload, branchPay = {}, isBranchAdmin = false,
 }) {
   const { run } = useRun(reload);
+  const canFinance = isAdmin || isBranchAdmin;
   const scopedBranches = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
   const sections = [
-    ['users', 'Pengguna'], ['links', 'Pesilat ↔ Akaun'], ['payments', 'Bayaran'], ['events', 'Kejohanan'],
+    ['users', 'Pengguna'], ['links', 'Pesilat ↔ Akaun'],
+    ...(canFinance ? [['payments', 'Bayaran'], ['export', 'Eksport Excel']] : []), ...(isAdmin ? [['exempt', 'Pengecualian Yuran']] : []), ['events', 'Kejohanan'],
     ['catalog', 'Yuran & Produk'], ['branches', isAdmin ? 'Cawangan' : 'Cawangan Saya'],
-    ...(isAdmin ? [['settings', 'Tetapan Bayaran'], ['academy', 'Maklumat Akademi'], ['payslips', 'Slip Gaji']] : []),
+    ['settings', 'Tetapan Bayaran'],
+    ...(isAdmin ? [['academy', 'Maklumat Akademi'], ['payslips', 'Slip Gaji']] : isBranchAdmin ? [['payslips', 'Slip Gaji']] : []),
   ];
   const [sec, setSec] = useState('users');
   return (
     <div className="space-y-4">
-      {!isAdmin && <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2">Akses jurulatih: terhad kepada cawangan {branchName[myBranch] || '(belum ditetapkan — hubungi admin)'}.</p>}
+      {!isAdmin && <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2">{isBranchAdmin ? 'Admin Cawangan' : 'Akses jurulatih'}: terhad kepada cawangan {branchName[myBranch] || '(belum ditetapkan — hubungi admin)'}.</p>}
       <div className="flex gap-2 overflow-x-auto">
         {sections.map(([id, label]) => (
           <button key={id} onClick={() => setSec(id)} className={`${btn} whitespace-nowrap ${sec === id ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>{label}</button>
         ))}
       </div>
-      {sec === 'users' && <UsersSection profiles={profiles} me={me} isAdmin={isAdmin} branches={branches} branchName={branchName} run={run} />}
+      {sec === 'users' && <UsersSection profiles={profiles} me={me} isAdmin={isAdmin} isBA={isBranchAdmin} branches={branches} branchName={branchName} run={run} />}
       {sec === 'links' && <LinksSection students={students} profiles={profiles} run={run} />}
-      {sec === 'payments' && <PaymentsSection payments={payments} refunds={refunds} profiles={profiles} run={run} />}
-      {sec === 'events' && <TournamentsSection students={students} tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
+      {sec === 'export' && canFinance && <FinanceExport payments={payments} profiles={profiles} students={students} branches={scopedBranches} allFeeTypes={allFeeTypes} branchFees={branchFees} isAdmin={isAdmin} myBranch={myBranch} branchName={branchName} />}
+      {sec === 'exempt' && isAdmin && <FeeExemptions students={students} profiles={profiles} branches={branches} allFeeTypes={allFeeTypes} branchFees={branchFees} branchName={branchName} run={run} />}
+      {sec === 'payments' && canFinance && <PaymentsSection payments={payments} refunds={refunds} profiles={profiles} run={run} />}
+      {sec === 'events' && <TournamentsSection canFinance={canFinance} students={students} tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
       {sec === 'catalog' && <CatalogSection products={products} feeTypes={feeTypes} allFeeTypes={allFeeTypes} branchFees={branchFees} branches={branches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}
       {sec === 'branches' && <BranchesSection branches={branches} run={run} isAdmin={isAdmin} myBranch={myBranch} />}
-      {sec === 'settings' && isAdmin && <PaymentSettings info={academyInfo.payment || {}} run={run} upload={upload} />}
+      {sec === 'settings' && <PaymentSettings branchPay={branchPay} branches={branches} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}
       {sec === 'academy' && isAdmin && <AcademyEditor academyInfo={academyInfo} run={run} />}
-      {sec === 'payslips' && isAdmin && <PayslipAdmin me={me} profiles={profiles} branches={branches} clubName={academyInfo.about?.title} />}
+      {sec === 'payslips' && (isAdmin || isBranchAdmin) && <PayslipAdmin me={me} profiles={isAdmin ? profiles : profiles.filter((p) => p.branch_id === myBranch && p.id !== me)} branches={scopedBranches} clubName={academyInfo.about?.title} />}
     </div>
   );
 }
