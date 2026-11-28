@@ -27,12 +27,14 @@ function useRun(reload) {
 }
 
 /* ---------------- USERS ---------------- */
-function UserRow({ u, me, isAdmin, branches, branchName, run }) {
+function UserRow({ u, me, isAdmin, isBA, branches, branchName, run }) {
   const [edit, setEdit] = useState(false);
   const [f, setF] = useState(u);
   const isMe = u.id === me;
   const privileged = u.role === 'admin' || u.role === 'coach';
-  const canTouch = isAdmin || (!privileged && !isMe);
+  const baTarget = isBA && !isMe && ['parent', 'student', 'coach'].includes(u.role);
+  const canTouch = isAdmin || baTarget || (!privileged && !isMe);
+  const canRole = isAdmin || baTarget;
   const save = async () => {
     const ic = (f.ic_no || '').replace(/\D/g, '');
     if (ic && ic.length !== 12) return alert('No. IC mesti 12 digit.');
@@ -62,16 +64,24 @@ function UserRow({ u, me, isAdmin, branches, branchName, run }) {
           <p className="text-[11px] text-slate-400">{u.phone || '-'} • IC: {u.ic_no || '-'} • {branchName[u.branch_id] || 'Tiada Cawangan'}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && u.requested_role === 'coach' && u.role !== 'coach' && (
+          {canRole && u.requested_role === 'coach' && u.role !== 'coach' && (
             <button onClick={() => setRole('coach')} className={`${btn} bg-amber-500 text-slate-950`}>Lulus Jurulatih</button>
           )}
-          {isAdmin ? (
+          {isAdmin && u.role === 'coach' && u.branch_id && (
+            <button onClick={() => run(() => supabase.from('profiles').update({ is_branch_admin: !u.is_branch_admin }).eq('id', u.id))}
+              className={`${btn} ${u.is_branch_admin ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'}`}
+              title="Admin Cawangan: akses seperti Master Admin tetapi untuk cawangan ini sahaja (1 orang setiap cawangan)">
+              {u.is_branch_admin ? '★ Admin Cawangan (Batal)' : 'Lantik Admin Cawangan'}
+            </button>
+          )}
+          {!isAdmin && u.is_branch_admin && <span className="px-2 py-1 rounded bg-amber-500 text-slate-950 font-bold text-[10px]">ADMIN CAWANGAN</span>}
+          {canRole ? (
             <select className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-semibold text-emerald-300 disabled:opacity-50"
               value={u.role} disabled={isMe} onChange={(e) => setRole(e.target.value)}>
               <option value="parent">Ibu Bapa</option>
               <option value="student">Pesilat</option>
               <option value="coach">Jurulatih</option>
-              <option value="admin">Admin</option>
+              {isAdmin && <option value="admin">Admin</option>}
             </select>
           ) : (
             <span className="px-2 py-1 rounded bg-slate-800 text-emerald-300 font-semibold uppercase text-[10px]">{u.role}</span>
@@ -89,7 +99,7 @@ function UserRow({ u, me, isAdmin, branches, branchName, run }) {
           {canTouch && !isMe && (
             <>
               <button onClick={() => setActive(u.is_active === false)} className={`${btn} bg-slate-800 text-slate-200`}>{u.is_active === false ? 'Aktifkan' : 'Nyahaktif'}</button>
-              {u.role !== 'admin' && <button onClick={del} className="p-1.5 rounded-lg bg-red-950 text-red-300 hover:bg-red-900" title="Padam"><Trash2 className="w-4 h-4" /></button>}
+              {isAdmin && u.role !== 'admin' && <button onClick={del} className="p-1.5 rounded-lg bg-red-950 text-red-300 hover:bg-red-900" title="Padam"><Trash2 className="w-4 h-4" /></button>}
             </>
           )}
         </div>
@@ -112,7 +122,7 @@ function UserRow({ u, me, isAdmin, branches, branchName, run }) {
   );
 }
 
-function UsersSection({ profiles, me, isAdmin, branches, branchName, run }) {
+function UsersSection({ profiles, me, isAdmin, isBA, branches, branchName, run }) {
   const [q, setQ] = useState('');
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -123,8 +133,8 @@ function UsersSection({ profiles, me, isAdmin, branches, branchName, run }) {
   const review = (id, ok) => run(() => supabase.rpc('review_membership', { p_user: id, p_approve: ok }));
   return (
     <div className={card}>
-      <h2 className="text-sm font-bold text-amber-400">Pengguna {isAdmin ? '& Peranan' : '(cawangan anda)'} ({profiles.length})</h2>
-      {isAdmin && pendingCoach.length > 0 && (
+      <h2 className="text-sm font-bold text-amber-400">Pengguna {isAdmin || isBA ? '& Peranan' : ''}{isAdmin ? '' : ' (cawangan anda)'} ({profiles.length})</h2>
+      {(isAdmin || isBA) && pendingCoach.length > 0 && (
         <p className="text-[11px] bg-amber-500/10 border border-amber-500/40 text-amber-300 rounded-lg p-2">{pendingCoach.length} permohonan jurulatih menunggu kelulusan.</p>
       )}
       {pendingMem.length > 0 && (
@@ -684,7 +694,7 @@ function AcademyEditor({ academyInfo, run }) {
 /* ---------------- SHELL ---------------- */
 export default function AdminPanel({
   me, isAdmin, myBranch, profiles, branches, students, tournaments, products, feeTypes, allFeeTypes, branchFees,
-  payments, refunds, academyInfo, branchName, reload, upload, branchPay = {},
+  payments, refunds, academyInfo, branchName, reload, upload, branchPay = {}, isBranchAdmin = false,
 }) {
   const { run } = useRun(reload);
   const scopedBranches = isAdmin ? branches : branches.filter((b) => b.id === myBranch);
@@ -692,18 +702,18 @@ export default function AdminPanel({
     ['users', 'Pengguna'], ['links', 'Pesilat ↔ Akaun'], ['payments', 'Bayaran'], ['events', 'Kejohanan'],
     ['catalog', 'Yuran & Produk'], ['branches', isAdmin ? 'Cawangan' : 'Cawangan Saya'],
     ['settings', 'Tetapan Bayaran'],
-    ...(isAdmin ? [['academy', 'Maklumat Akademi'], ['payslips', 'Slip Gaji']] : []),
+    ...(isAdmin ? [['academy', 'Maklumat Akademi'], ['payslips', 'Slip Gaji']] : isBranchAdmin ? [['payslips', 'Slip Gaji']] : []),
   ];
   const [sec, setSec] = useState('users');
   return (
     <div className="space-y-4">
-      {!isAdmin && <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2">Akses jurulatih: terhad kepada cawangan {branchName[myBranch] || '(belum ditetapkan — hubungi admin)'}.</p>}
+      {!isAdmin && <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2">{isBranchAdmin ? 'Admin Cawangan' : 'Akses jurulatih'}: terhad kepada cawangan {branchName[myBranch] || '(belum ditetapkan — hubungi admin)'}.</p>}
       <div className="flex gap-2 overflow-x-auto">
         {sections.map(([id, label]) => (
           <button key={id} onClick={() => setSec(id)} className={`${btn} whitespace-nowrap ${sec === id ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>{label}</button>
         ))}
       </div>
-      {sec === 'users' && <UsersSection profiles={profiles} me={me} isAdmin={isAdmin} branches={branches} branchName={branchName} run={run} />}
+      {sec === 'users' && <UsersSection profiles={profiles} me={me} isAdmin={isAdmin} isBA={isBranchAdmin} branches={branches} branchName={branchName} run={run} />}
       {sec === 'links' && <LinksSection students={students} profiles={profiles} run={run} />}
       {sec === 'payments' && <PaymentsSection payments={payments} refunds={refunds} profiles={profiles} run={run} />}
       {sec === 'events' && <TournamentsSection students={students} tournaments={tournaments} run={run} me={me} upload={upload} branches={scopedBranches} branchName={branchName} isAdmin={isAdmin} myBranch={myBranch} />}
@@ -711,7 +721,7 @@ export default function AdminPanel({
       {sec === 'branches' && <BranchesSection branches={branches} run={run} isAdmin={isAdmin} myBranch={myBranch} />}
       {sec === 'settings' && <PaymentSettings branchPay={branchPay} branches={branches} isAdmin={isAdmin} myBranch={myBranch} run={run} upload={upload} />}
       {sec === 'academy' && isAdmin && <AcademyEditor academyInfo={academyInfo} run={run} />}
-      {sec === 'payslips' && isAdmin && <PayslipAdmin me={me} profiles={profiles} branches={branches} clubName={academyInfo.about?.title} />}
+      {sec === 'payslips' && (isAdmin || isBranchAdmin) && <PayslipAdmin me={me} profiles={isAdmin ? profiles : profiles.filter((p) => p.branch_id === myBranch && p.id !== me)} branches={scopedBranches} clubName={academyInfo.about?.title} />}
     </div>
   );
 }

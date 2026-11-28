@@ -644,7 +644,7 @@ export default function App() {
           <div>
             <h1 className="text-sm sm:text-base font-bold text-amber-400 leading-tight">AKADEMI PUKULAN SERANTAU</h1>
             <p className="text-[11px] text-emerald-200">
-              {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : profile?.role}</span>
+              {profile?.full_name} • <span className="uppercase font-semibold">{viewAsParent ? 'MOD IBU BAPA' : (profile?.role === 'coach' && profile?.is_branch_admin ? 'ADMIN CAWANGAN' : profile?.role)}</span>
               {profile?.member_no && <> • <span className="font-mono text-amber-300">{profile.member_no}</span></>}
             </p>
           </div>
@@ -1104,7 +1104,7 @@ export default function App() {
               students={students} tournaments={tournaments} products={products}
               feeTypes={activeFeeTypes} allFeeTypes={feeTypes} branchFees={branchFees}
               payments={payments} refunds={refunds} academyInfo={academyInfo}
-              branchName={branchNameById} branchPay={branchPay} reload={() => loadAllData(session.user.id)} upload={uploadClubImage}
+              branchName={branchNameById} branchPay={branchPay} isBranchAdmin={profile?.role === 'coach' && !!profile?.is_branch_admin} reload={() => loadAllData(session.user.id)} upload={uploadClubImage}
             />
           </div>
         )}
