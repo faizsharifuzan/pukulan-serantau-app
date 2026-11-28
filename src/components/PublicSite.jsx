@@ -152,7 +152,7 @@ export default function PublicSite({ onLogin, onRegister }) {
             ))}
           </div>
         )}
-        <MemberNote text="Untuk menyertai kejohanan, sila daftar & log masuk. Penyertaan untuk ahli sahaja." />
+        <MemberNote text="Untuk menyertai kejohanan, sila daftar akaun & log masuk dahulu." />
       </Section>
 
       <Section id="merchandise" title="Merchandise" icon={<ShoppingBag className="w-5 h-5" />}>
@@ -169,7 +169,7 @@ export default function PublicSite({ onLogin, onRegister }) {
             ))}
           </div>
         )}
-        <MemberNote text="Pembelian merchandise untuk ahli berdaftar sahaja. Sila daftar & log masuk." />
+        <MemberNote text="Untuk membeli, sila daftar akaun & log masuk dahulu." />
       </Section>
 
       {socials.length > 0 && (

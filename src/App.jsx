@@ -656,8 +656,8 @@ export default function App() {
         <div className="mx-4 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-xs text-amber-200 flex flex-wrap items-center justify-between gap-2">
           <p>
             {profile?.membership_status === 'pending'
-              ? <>Permohonan keahlian anda <b>sedang menunggu kelulusan</b> Admin/Jurulatih. Selepas diluluskan anda akan dapat No. Ahli dan boleh membayar yuran, menyertai kejohanan & membeli merchandise.</>
-              : <>Anda <b>bukan ahli</b> (tiada No. Ahli). Anda masih boleh melihat maklumat & rekod anak, tetapi bayaran yuran, penyertaan kejohanan dan pembelian hanya untuk ahli.</>}
+              ? <>Permohonan keahlian anda <b>sedang menunggu kelulusan</b> Admin/Jurulatih. Selepas diluluskan anda akan dapat No. Ahli. Anda tetap boleh membayar & membeli sementara menunggu.</>
+              : <>Anda belum mempunyai <b>No. Ahli</b>. Anda tetap boleh membayar yuran, menyertai kejohanan dan membeli. Mohon keahlian jika mahu menjadi ahli rasmi.</>}
           </p>
           {profile?.membership_status !== 'pending' && <button onClick={requestMembership} className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold">Mohon Jadi Ahli</button>}
         </div>
@@ -859,9 +859,7 @@ export default function App() {
                             <p className="text-xs font-bold">{child.full_name || child.short_name}</p>
                             <p className="text-[10px] text-slate-400">{child.weight_class || getPersilatWeightClass(child.age, child.current_weight)} • {elig.reason}</p>
                           </div>
-                          {elig.eligible && !isMember ? (
-                            <span className="text-[10px] text-amber-300 font-semibold">Untuk ahli sahaja</span>
-                          ) : elig.eligible ? (
+                          {elig.eligible ? (
                             <button
                               onClick={() => addToCart({ student_id: child.id, type: 'tournament', tournament_id: t.id, label: `Yuran ${t.title} (${child.short_name})`, amount: Number(t.entry_fee) })}
                               className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-[11px] font-bold whitespace-nowrap"
@@ -903,9 +901,8 @@ export default function App() {
                         <span>{fee.label} <b className="text-emerald-400">{rm(fee.amount)}</b></span>
                         <button
                           onClick={() => addToCart({ student_id: c.id, type: 'fee', fee_code: fee.code, label: `${fee.label} (${c.short_name})`, amount: fee.amount })}
-                          disabled={!isMember}
-                          className="px-2 py-1 rounded bg-emerald-900/70 hover:bg-emerald-700 text-[10px] disabled:opacity-40"
-                        >{isMember ? '+ Troli' : 'Ahli sahaja'}</button>
+                          className="px-2 py-1 rounded bg-emerald-900/70 hover:bg-emerald-700 text-[10px]"
+                        >+ Troli</button>
                       </div>
                     ))}
                   </div>
@@ -923,8 +920,8 @@ export default function App() {
                     <h3 className="text-sm font-bold">{p.name}</h3>
                     <div className="flex items-center justify-between">
                       <span className="text-emerald-400 font-bold text-sm">RM{Number(p.price).toFixed(2)}</span>
-                      <button disabled={!p.in_stock || !isMember} title={isMember ? '' : 'Pembelian untuk ahli sahaja'} onClick={() => addToCart({ type: 'product', product_id: p.id, unit: Number(p.price), label: p.name, amount: Number(p.price) })} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-xs font-semibold flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> {!p.in_stock ? 'Habis' : isMember ? 'Troli' : 'Ahli sahaja'}
+                      <button disabled={!p.in_stock} onClick={() => addToCart({ type: 'product', product_id: p.id, unit: Number(p.price), label: p.name, amount: Number(p.price) })} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-xs font-semibold flex items-center gap-1">
+                        <Plus className="w-3 h-3" /> {p.in_stock ? 'Troli' : 'Habis'}
                       </button>
                     </div>
                   </div>
